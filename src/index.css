@@ -1,0 +1,77 @@
+@import url('https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=Tajawal:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Public Sans", "Tajawal", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  
+  --color-gov-green: #006b33;
+  --color-gov-green-hover: #005226;
+  --color-gov-green-light: #e6f4ea;
+  --color-gov-green-container: #008742;
+  --color-gov-dark: #191c1d;
+  --color-gov-gray: #5f5e5c;
+  --color-gov-bg: #f8f9fa;
+  --color-gov-surface: #ffffff;
+  --color-gov-border: #bdcabc;
+  
+  --color-status-valid-bg: #e6f4ea;
+  --color-status-valid-text: #137333;
+  --color-status-expired-bg: #fce8e6;
+  --color-status-expired-text: #c5221f;
+  --color-status-pending-bg: #fef7e0;
+  --color-status-pending-text: #b06000;
+}
+
+/* Custom CSS Scrollbar and other utilities */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+html, body {
+  font-family: var(--font-sans);
+  background-color: var(--color-gov-bg);
+  color: var(--color-gov-dark);
+}
+
+.font-arabic {
+  font-family: "Tajawal", "Public Sans", sans-serif;
+}
+
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  /* Hide all elements except the print section */
+  #root > *:not(#print-section) {
+    display: none !important;
+  }
+  #print-section {
+    display: block !important;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+  }
+  .page-break {
+    page-break-after: always;
+    break-after: page;
+  }
+}

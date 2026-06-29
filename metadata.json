@@ -1,0 +1,6 @@
+{
+  "name": "Official Permit Portal",
+  "description": "بوابة إلكترونية رسمية لإدارة وتدقيق تصاريح تعبئة وقود المركبات. Official portal for managing and verifying vehicle fuel filling permits.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
