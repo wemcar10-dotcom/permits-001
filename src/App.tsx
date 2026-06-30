@@ -59,6 +59,7 @@ export default function App() {
   const [viewingPermit, setViewingPermit] = useState<Permit | null>(null);
   const [renewingPermit, setRenewingPermit] = useState<Permit | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deleteAllConfirm, setDeleteAllConfirm] = useState(false);
   
   // 6. Inline Notifications state
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -105,20 +106,13 @@ export default function App() {
         list.push({ ...doc.data() as Permit });
       });
       
-      if (snapshot.empty) {
-        // Seed initial permits
-        INITIAL_PERMITS.forEach(async (p) => {
-          await setDoc(doc(db, 'permits', p.id), p);
-        });
-      } else {
-        // Sort permits descending by id
-        list.sort((a, b) => {
-          const aId = parseInt(a.id, 10) || 0;
-          const bId = parseInt(b.id, 10) || 0;
-          return bId - aId;
-        });
-        setPermits(list);
-      }
+      // Sort permits descending by id
+      list.sort((a, b) => {
+        const aId = parseInt(a.id, 10) || 0;
+        const bId = parseInt(b.id, 10) || 0;
+        return bId - aId;
+      });
+      setPermits(list);
     }, (error) => {
       console.error("Firestore permits error:", error);
     });
@@ -259,6 +253,25 @@ export default function App() {
       triggerNotification(language === 'ar' ? 'حدث خطأ أثناء الحذف' : 'Error deleting permit', 'error');
     }
     setDeleteConfirmId(null);
+  };
+
+  // Delete All Action
+  const handleDeleteAllPermits = async () => {
+    try {
+      const deletePromises = permits.map(p => deleteDoc(doc(db, 'permits', p.id)));
+      await Promise.all(deletePromises);
+      triggerNotification(
+        language === 'ar' ? 'تم حذف جميع التصاريح بنجاح.' : 'All permits have been deleted successfully.',
+        'success'
+      );
+    } catch (e) {
+      console.error(e);
+      triggerNotification(
+        language === 'ar' ? 'حدث خطأ أثناء حذف جميع التصاريح.' : 'Error deleting all permits.',
+        'error'
+      );
+    }
+    setDeleteAllConfirm(false);
   };
 
   // Extract unique Hijri years from all permits dynamically to populate the year select boxes
@@ -606,6 +619,16 @@ export default function App() {
                     <Plus className="h-4 w-4" />
                     <span>{t.addPermitTab}</span>
                   </button>
+                  {currentUser?.role === 'admin' && permits.length > 0 && (
+                    <button
+                      onClick={() => setDeleteAllConfirm(true)}
+                      className="bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
+                      title={language === 'ar' ? 'حذف جميع التصاريح' : 'Delete All Permits'}
+                    >
+                      <Trash2 className="h-4 w-4 text-red-600" />
+                      <span>{language === 'ar' ? 'حذف جميع التصاريح' : 'Delete All Permits'}</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1289,6 +1312,54 @@ export default function App() {
                   onClick={() => setDeleteConfirmId(null)}
                   className="flex-1 py-2.5 bg-[#f8f9fa] border border-[#cbd5e1] text-[#5f5e5c] rounded-xl text-xs font-bold transition-all cursor-pointer"
                   id="cancel-delete-btn"
+                >
+                  {t.noCancel}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* DELETE ALL CONFIRMATION OVERLAY */}
+      <AnimatePresence>
+        {deleteAllConfirm && (
+          <div className="fixed inset-0 bg-[#191c1d]/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-2xl border border-[#cbd5e1] max-w-md w-full p-6 shadow-xl space-y-4"
+              id="delete-all-confirmation-dialog"
+            >
+              <div className="h-12 w-12 bg-red-100 text-[#c5221f] rounded-full flex items-center justify-center mx-auto">
+                <AlertTriangle className="h-6 w-6" />
+              </div>
+              <div className="text-center">
+                <h4 className="text-sm font-bold text-[#191c1d]">
+                  {language === 'ar' ? 'حذف كافة التصاريح' : 'Delete All Permits'}
+                </h4>
+                <p className="text-xs text-[#5f5e5c] mt-2">
+                  {language === 'ar' 
+                    ? 'هل أنت متأكد من رغبتك في حذف جميع التصاريح بشكل نهائي؟ لا يمكن التراجع عن هذا الإجراء.' 
+                    : 'Are you sure you want to permanently delete all permits? This action cannot be undone.'}
+                </p>
+                <div className="bg-red-50 border border-red-200 rounded-xl p-2.5 text-xs font-bold text-red-700 mt-2">
+                  {language === 'ar' ? 'سيتم مسح قاعدة البيانات بالكامل' : 'The database will be completely cleared'}
+                </div>
+              </div>
+              <div className="flex gap-2.5 pt-2">
+                <button
+                  onClick={handleDeleteAllPermits}
+                  className="flex-1 py-2.5 bg-[#c5221f] hover:bg-[#a81c19] text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
+                  id="confirm-delete-all-btn"
+                >
+                  {language === 'ar' ? 'نعم، حذف الكل' : 'Yes, Delete All'}
+                </button>
+                <button
+                  onClick={() => setDeleteAllConfirm(false)}
+                  className="flex-1 py-2.5 bg-[#f8f9fa] border border-[#cbd5e1] text-[#5f5e5c] rounded-xl text-xs font-bold transition-all cursor-pointer"
+                  id="cancel-delete-all-btn"
                 >
                   {t.noCancel}
                 </button>
