@@ -14,6 +14,8 @@ import {
   formatHijriDate, 
   toHijriString 
 } from './hijri';
+import { db } from './firebase';
+import { collection, onSnapshot, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 
 export default function App() {
   // 1. Language state: Arabic by default, load from localStorage if exists
@@ -23,55 +25,7 @@ export default function App() {
   });
 
   // 1.1 Users State
-  const [users, setUsers] = useState<UserAccount[]>(() => {
-    const saved = localStorage.getItem('prm_users');
-    let parsed: UserAccount[] = [];
-    if (saved) {
-      try {
-        parsed = JSON.parse(saved);
-      } catch (e) {
-        // ignore and fallback
-      }
-    }
-    
-    const defaultUsers: UserAccount[] = [
-      {
-        username: "waseem",
-        fullName: language === 'ar' ? 'وسيم' : 'Waseem',
-        password: "wem",
-        role: "admin",
-        status: "approved",
-        createdAt: "1447-12-09"
-      },
-      {
-        username: "jmmk",
-        fullName: language === 'ar' ? 'مساعد نظام' : 'System Assistant',
-        password: "jm",
-        role: "admin",
-        status: "approved",
-        createdAt: "1447-12-09"
-      }
-    ];
-
-    if (parsed && parsed.length > 0) {
-      const merged = [...parsed];
-      defaultUsers.forEach(du => {
-        if (!merged.some(u => u.username.toLowerCase() === du.username.toLowerCase())) {
-          merged.push(du);
-        } else {
-          // If the user already exists but has been updated or we want to force the specific password/role
-          const index = merged.findIndex(u => u.username.toLowerCase() === du.username.toLowerCase());
-          if (index !== -1 && merged[index].username.toLowerCase() === 'jmmk') {
-            merged[index].password = 'jm';
-            merged[index].role = 'admin';
-            merged[index].status = 'approved';
-          }
-        }
-      });
-      return merged;
-    }
-    return defaultUsers;
-  });
+  const [users, setUsers] = useState<UserAccount[]>([]);
 
   // 1.2 Current Logged in User State
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
@@ -87,17 +41,7 @@ export default function App() {
   });
 
   // 2. Permits database state: load from localStorage or fallback to INITIAL_PERMITS
-  const [permits, setPermits] = useState<Permit[]>(() => {
-    const saved = localStorage.getItem('prm_database');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        return INITIAL_PERMITS;
-      }
-    }
-    return INITIAL_PERMITS;
-  });
+  const [permits, setPermits] = useState<Permit[]>([]);
 
   // 3. Navigation / Tab State: 'all' (جميع التصاريح), 'add' (إضافة تصريح جديد), 'search' (صفحة البحث), 'users' (إدارة المستخدمين)
   const [activeTab, setActiveTab] = useState<'all' | 'add' | 'search' | 'users'>('all');
@@ -153,14 +97,78 @@ export default function App() {
     });
   };
 
-  // Sync state changes with localStorage and document properties
+  // Listen to permits from Firestore in real-time
   useEffect(() => {
-    localStorage.setItem('prm_database', JSON.stringify(permits));
-  }, [permits]);
+    const unsubscribe = onSnapshot(collection(db, 'permits'), (snapshot) => {
+      const list: Permit[] = [];
+      snapshot.forEach((doc) => {
+        list.push({ ...doc.data() as Permit });
+      });
+      
+      if (snapshot.empty) {
+        // Seed initial permits
+        INITIAL_PERMITS.forEach(async (p) => {
+          await setDoc(doc(db, 'permits', p.id), p);
+        });
+      } else {
+        // Sort permits descending by id
+        list.sort((a, b) => {
+          const aId = parseInt(a.id, 10) || 0;
+          const bId = parseInt(b.id, 10) || 0;
+          return bId - aId;
+        });
+        setPermits(list);
+      }
+    }, (error) => {
+      console.error("Firestore permits error:", error);
+    });
+    return () => unsubscribe();
+  }, []);
 
+  // Listen to users from Firestore in real-time
   useEffect(() => {
-    localStorage.setItem('prm_users', JSON.stringify(users));
-  }, [users]);
+    const unsubscribe = onSnapshot(collection(db, 'users'), (snapshot) => {
+      const list: UserAccount[] = [];
+      snapshot.forEach((doc) => {
+        list.push(doc.data() as UserAccount);
+      });
+
+      // Default hardcoded users
+      const defaultUsers: UserAccount[] = [
+        {
+          username: "waseem",
+          fullName: language === 'ar' ? 'وسيم' : 'Waseem',
+          password: "wem",
+          role: "admin",
+          status: "approved",
+          createdAt: "1447-12-09"
+        },
+        {
+          username: "jmmk",
+          fullName: language === 'ar' ? 'مساعد نظام' : 'System Assistant',
+          password: "jm",
+          role: "admin",
+          status: "approved",
+          createdAt: "1447-12-09"
+        }
+      ];
+
+      let needsSeeding = false;
+      defaultUsers.forEach(du => {
+        if (!list.some(u => u.username.toLowerCase() === du.username.toLowerCase())) {
+          needsSeeding = true;
+          setDoc(doc(db, 'users', du.username.toLowerCase()), du);
+        }
+      });
+
+      if (!needsSeeding) {
+        setUsers(list);
+      }
+    }, (error) => {
+      console.error("Firestore users error:", error);
+    });
+    return () => unsubscribe();
+  }, [language]);
 
   useEffect(() => {
     if (currentUser) {
@@ -243,9 +251,13 @@ export default function App() {
   };
 
   // Delete Action
-  const handleDeletePermit = (id: string) => {
-    setPermits(prev => prev.filter(p => p.id !== id));
-    triggerNotification(t.successDelete, 'success');
+  const handleDeletePermit = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'permits', id));
+      triggerNotification(t.successDelete, 'success');
+    } catch (e) {
+      triggerNotification(language === 'ar' ? 'حدث خطأ أثناء الحذف' : 'Error deleting permit', 'error');
+    }
     setDeleteConfirmId(null);
   };
 
@@ -298,14 +310,18 @@ export default function App() {
           );
         }}
         users={users}
-        onRegister={(newUser) => {
-          setUsers(prev => [...prev, newUser]);
-          triggerNotification(
-            language === 'ar' 
-              ? `تم تسجيل الحساب بنجاح. بانتظار موافقة المسؤول waseem.` 
-              : `Account registered successfully. Pending approval by waseem.`, 
-            'success'
-          );
+        onRegister={async (newUser) => {
+          try {
+            await setDoc(doc(db, 'users', newUser.username.toLowerCase()), newUser);
+            triggerNotification(
+              language === 'ar' 
+                ? `تم تسجيل الحساب بنجاح. بانتظار موافقة المسؤول waseem.` 
+                : `Account registered successfully. Pending approval by waseem.`, 
+              'success'
+            );
+          } catch (e) {
+            triggerNotification(language === 'ar' ? 'فشل تسجيل الحساب' : 'Failed to register account', 'error');
+          }
         }}
         setLanguage={setLanguage}
         t={t}
@@ -887,10 +903,14 @@ export default function App() {
         {activeTab === 'add' && (
           <AddPermitView 
             language={language}
-            onAdd={(newPermit) => {
-              setPermits(prev => [newPermit, ...prev]);
-              triggerNotification(`${t.successAdd} ${newPermit.id}`, 'success');
-              setActiveTab('all');
+            onAdd={async (newPermit) => {
+              try {
+                await setDoc(doc(db, 'permits', newPermit.id), newPermit);
+                triggerNotification(`${t.successAdd} ${newPermit.id}`, 'success');
+                setActiveTab('all');
+              } catch (e) {
+                triggerNotification(language === 'ar' ? 'فشل إضافة التصريح' : 'Failed to add permit', 'error');
+              }
             }}
             generateId={generateSequentialId}
             currentUser={currentUser}
@@ -1177,10 +1197,14 @@ export default function App() {
             language={language}
             permit={editingPermit}
             onClose={() => setEditingPermit(null)}
-            onSave={(updatedPermit) => {
-              setPermits(prev => prev.map(p => p.id === updatedPermit.id ? updatedPermit : p));
-              triggerNotification(t.successEdit, 'success');
-              setEditingPermit(null);
+            onSave={async (updatedPermit) => {
+              try {
+                await setDoc(doc(db, 'permits', updatedPermit.id), updatedPermit);
+                triggerNotification(t.successEdit, 'success');
+                setEditingPermit(null);
+              } catch (e) {
+                triggerNotification(language === 'ar' ? 'فشل تعديل التصريح' : 'Failed to edit permit', 'error');
+              }
             }}
           />
         )}
@@ -1193,10 +1217,14 @@ export default function App() {
             language={language}
             permit={viewingDocsPermit}
             onClose={() => setViewingDocsPermit(null)}
-            onUpdateAttachments={(updatedAttachments) => {
-              setPermits(prev => prev.map(p => p.id === viewingDocsPermit.id ? { ...p, attachments: updatedAttachments } : p));
-              setViewingDocsPermit({ ...viewingDocsPermit, attachments: updatedAttachments });
-              triggerNotification(t.successEdit, 'success');
+            onUpdateAttachments={async (updatedAttachments) => {
+              try {
+                await updateDoc(doc(db, 'permits', viewingDocsPermit.id), { attachments: updatedAttachments });
+                setViewingDocsPermit({ ...viewingDocsPermit, attachments: updatedAttachments });
+                triggerNotification(t.successEdit, 'success');
+              } catch (e) {
+                triggerNotification(language === 'ar' ? 'فشل تعديل المستندات' : 'Failed to update documents', 'error');
+              }
             }}
             onPrintAttachment={(file) => setPrintAttachment({ permit: viewingDocsPermit, file })}
           />
@@ -1210,15 +1238,19 @@ export default function App() {
             language={language}
             permit={renewingPermit}
             onClose={() => setRenewingPermit(null)}
-            onSave={(updatedPermit) => {
-              setPermits(prev => prev.map(p => p.id === updatedPermit.id ? updatedPermit : p));
-              triggerNotification(
-                language === 'ar'
-                  ? `تم تجديد التصريح رقم #${updatedPermit.id} بنجاح`
-                  : `Permit #${updatedPermit.id} renewed successfully`,
-                'success'
-               );
-               setRenewingPermit(null);
+            onSave={async (updatedPermit) => {
+              try {
+                await setDoc(doc(db, 'permits', updatedPermit.id), updatedPermit);
+                triggerNotification(
+                  language === 'ar'
+                    ? `تم تجديد التصريح رقم #${updatedPermit.id} بنجاح`
+                    : `Permit #${updatedPermit.id} renewed successfully`,
+                  'success'
+                 );
+                 setRenewingPermit(null);
+              } catch (e) {
+                triggerNotification(language === 'ar' ? 'فشل تجديد التصريح' : 'Failed to renew permit', 'error');
+              }
             }}
           />
         )}
@@ -3378,7 +3410,7 @@ function UserManagement({ language, users, setUsers, currentUser, triggerNotific
   const [newFullName, setNewFullName] = useState('');
   const [newRole, setNewRole] = useState<'admin' | 'user'>('user');
 
-  const handleCreateUser = (e: React.FormEvent) => {
+  const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newFullName.trim() || !newUsername.trim() || !newPassword) {
       triggerNotification(
@@ -3418,39 +3450,48 @@ function UserManagement({ language, users, setUsers, currentUser, triggerNotific
       createdAt: todayStr
     };
 
-    setUsers(prev => [...prev, newUser]);
-    
-    // reset form
-    setNewUsername('');
-    setNewPassword('');
-    setNewFullName('');
-    setNewRole('user');
-    setShowAddForm(false);
+    try {
+      await setDoc(doc(db, 'users', newUser.username.toLowerCase()), newUser);
+      
+      // reset form
+      setNewUsername('');
+      setNewPassword('');
+      setNewFullName('');
+      setNewRole('user');
+      setShowAddForm(false);
 
-    triggerNotification(
-      isAr 
-        ? `تم تسجيل وإضافة المستخدم الجديد (${newUser.fullName}) وتفعيله بنجاح.` 
-        : `New user (${newUser.fullName}) registered and activated successfully.`,
-      'success'
-    );
+      triggerNotification(
+        isAr 
+          ? `تم تسجيل وإضافة المستخدم الجديد (${newUser.fullName}) وتفعيله بنجاح.` 
+          : `New user (${newUser.fullName}) registered and activated successfully.`,
+        'success'
+      );
+    } catch (e) {
+      triggerNotification(
+        isAr ? 'حدث خطأ أثناء إضافة المستخدم.' : 'Error adding new user.',
+        'error'
+      );
+    }
   };
 
-  const handleApprove = (username: string) => {
-    setUsers(prev => prev.map(u => {
-      if (u.username === username) {
-        return { ...u, status: 'approved' };
-      }
-      return u;
-    }));
-    triggerNotification(
-      isAr 
-        ? `تم تفعيل حساب المستخدم (${username}) بنجاح.` 
-        : `User account (${username}) has been activated successfully.`, 
-      'success'
-    );
+  const handleApprove = async (username: string) => {
+    try {
+      await updateDoc(doc(db, 'users', username.toLowerCase()), { status: 'approved' });
+      triggerNotification(
+        isAr 
+          ? `تم تفعيل حساب المستخدم (${username}) بنجاح.` 
+          : `User account (${username}) has been activated successfully.`, 
+        'success'
+      );
+    } catch (e) {
+      triggerNotification(
+        isAr ? 'حدث خطأ أثناء التفعيل.' : 'Error activating account.',
+        'error'
+      );
+    }
   };
 
-  const handleDelete = (username: string) => {
+  const handleDelete = async (username: string) => {
     if (username.toLowerCase() === 'waseem') {
       triggerNotification(
         isAr ? 'لا يمكن حذف حساب المسؤول الأساسي للنظام.' : 'Primary admin account cannot be deleted.',
@@ -3458,13 +3499,20 @@ function UserManagement({ language, users, setUsers, currentUser, triggerNotific
       );
       return;
     }
-    setUsers(prev => prev.filter(u => u.username !== username));
-    triggerNotification(
-      isAr 
-        ? `تم حذف حساب المستخدم (${username}) نهائياً.` 
-        : `User account (${username}) has been permanently deleted.`, 
-      'success'
-    );
+    try {
+      await deleteDoc(doc(db, 'users', username.toLowerCase()));
+      triggerNotification(
+        isAr 
+          ? `تم حذف حساب المستخدم (${username}) نهائياً.` 
+          : `User account (${username}) has been permanently deleted.`, 
+        'success'
+      );
+    } catch (e) {
+      triggerNotification(
+        isAr ? 'حدث خطأ أثناء الحذف.' : 'Error deleting account.',
+        'error'
+      );
+    }
   };
 
   return (

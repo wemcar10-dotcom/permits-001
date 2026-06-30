@@ -1,0 +1,32 @@
+{
+  "collections": {
+    "users": {
+      "fields": {
+        "username": { "type": "string" },
+        "fullName": { "type": "string" },
+        "password": { "type": "string" },
+        "role": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" }
+      }
+    },
+    "permits": {
+      "fields": {
+        "id": { "type": "string" },
+        "permitteeName": { "type": "string" },
+        "permitteeId": { "type": "string" },
+        "ownerName": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "actualUser": { "type": "string" },
+        "actualUserId": { "type": "string" },
+        "vehicleType": { "type": "string" },
+        "plateNumber": { "type": "string" },
+        "vehicleColor": { "type": "string" },
+        "startDate": { "type": "string" },
+        "endDate": { "type": "string" },
+        "attachments": { "type": "array" },
+        "createdBy": { "type": "string" }
+      }
+    }
+  }
+}
