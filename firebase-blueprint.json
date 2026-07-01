@@ -20,6 +20,7 @@
         "actualUser": { "type": "string" },
         "actualUserId": { "type": "string" },
         "vehicleType": { "type": "string" },
+        "vehicleModel": { "type": "string" },
         "plateNumber": { "type": "string" },
         "vehicleColor": { "type": "string" },
         "startDate": { "type": "string" },

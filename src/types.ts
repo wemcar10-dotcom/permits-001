@@ -16,6 +16,7 @@ export interface Permit {
   actualUser: string; // المستخدم الفعلي
   actualUserId: string; // رقم هوية المستخدم الفعلي
   vehicleType: string; // نوع السيارة
+  vehicleModel: string; // موديل السيارة
   plateNumber: string; // رقم اللوحة
   vehicleColor: string; // لون السيارة
   startDate: string; // تاريخ بداية التصريح

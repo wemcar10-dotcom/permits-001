@@ -307,6 +307,8 @@ export default function App() {
       (permit.actualUser || '').toLowerCase().includes(query) ||
       (permit.actualUserId || '').toLowerCase().includes(query) ||
       (permit.plateNumber || '').toLowerCase().includes(query) ||
+      (permit.vehicleType || '').toLowerCase().includes(query) ||
+      (permit.vehicleModel || '').toLowerCase().includes(query) ||
       (permit.createdBy || '').toLowerCase().includes(query)
     );
   });
@@ -749,7 +751,8 @@ export default function App() {
                               <div className="text-[10px] text-[#5f5e5c] mt-0.5">{language === 'ar' ? 'اللون' : 'Color'}: {permit.vehicleColor}</div>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-xs text-[#191c1d]">
-                              {permit.vehicleType}
+                              <div>{permit.vehicleType}</div>
+                              <div className="text-[10px] text-[#5f5e5c] mt-0.5">{language === 'ar' ? 'الموديل' : 'Model'}: {permit.vehicleModel}</div>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-xs text-[#5f5e5c] font-medium font-mono">
                               {formatHijriString(permit.startDate, language)}
@@ -858,7 +861,7 @@ export default function App() {
                             </div>
                             <div>
                               <span className="text-[10px] text-[#5f5e5c] block">{t.vehicleType}</span>
-                              <span className="text-xs font-medium text-[#191c1d]">{permit.vehicleType}</span>
+                              <span className="text-xs font-medium text-[#191c1d]">{permit.vehicleType} ({permit.vehicleModel})</span>
                             </div>
                             <div>
                               <span className="text-[10px] text-[#5f5e5c] block">{t.startDate}</span>
@@ -1131,7 +1134,7 @@ export default function App() {
                           <div>
                             <span className="text-[10px] text-[#5f5e5c] block mb-0.5">{t.vehicleType}</span>
                             <span className="font-bold text-[#191c1d]">{permit.vehicleType}</span>
-                            <span className="text-[9px] text-[#5f5e5c] block mt-0.5">{language === 'ar' ? 'اللون' : 'Color'}: {permit.vehicleColor}</span>
+                            <span className="text-[9px] text-[#5f5e5c] block mt-0.5">{language === 'ar' ? 'الموديل' : 'Model'}: {permit.vehicleModel} &bull; {language === 'ar' ? 'اللون' : 'Color'}: {permit.vehicleColor}</span>
                           </div>
                           <div>
                             <span className="text-[10px] text-[#5f5e5c] block mb-0.5">{t.startDate}</span>
@@ -1427,6 +1430,7 @@ function AddPermitView({ language, onAdd, generateId, currentUser }: AddPermitVi
   const [actualUser, setActualUser] = useState('');
   const [actualUserId, setActualUserId] = useState('');
   const [vehicleType, setVehicleType] = useState('سيارة سيدان (Toyota Camry)');
+  const [vehicleModel, setVehicleModel] = useState('');
   const [plateNumber, setPlateNumber] = useState('');
   const [vehicleColor, setVehicleColor] = useState('');
   const [startDate, setStartDate] = useState(() => {
@@ -1523,6 +1527,7 @@ function AddPermitView({ language, onAdd, generateId, currentUser }: AddPermitVi
     if (!actualUser.trim()) newErrors.actualUser = language === 'ar' ? 'المستخدم الفعلي مطلوب' : 'Actual user is required';
     if (!actualUserId.trim() || !/^\d{10}$/.test(actualUserId)) newErrors.actualUserId = language === 'ar' ? 'رقم هوية المستخدم الفعلي يجب أن يتكون من 10 خانات' : 'Actual User ID must be 10 digits';
     if (!plateNumber.trim()) newErrors.plateNumber = language === 'ar' ? 'رقم اللوحة مطلوب' : 'Plate number is required';
+    if (!vehicleModel.trim()) newErrors.vehicleModel = language === 'ar' ? 'موديل السيارة مطلوب' : 'Vehicle model is required';
     if (!vehicleColor.trim()) newErrors.vehicleColor = language === 'ar' ? 'لون السيارة مطلوب' : 'Vehicle color is required';
     if (!startDate) newErrors.startDate = language === 'ar' ? 'تاريخ بداية التصريح مطلوب' : 'Start date is required';
     if (!endDate) newErrors.endDate = language === 'ar' ? 'تاريخ نهاية التصريح مطلوب' : 'End date is required';
@@ -1546,6 +1551,7 @@ function AddPermitView({ language, onAdd, generateId, currentUser }: AddPermitVi
       actualUser,
       actualUserId,
       vehicleType,
+      vehicleModel,
       plateNumber,
       vehicleColor,
       startDate,
@@ -1683,22 +1689,35 @@ function AddPermitView({ language, onAdd, generateId, currentUser }: AddPermitVi
             <span>{language === 'ar' ? 'مواصفات السيارة وفترة التصريح' : 'Vehicle Specifications & Validity Period'}</span>
           </h4>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
             {/* Vehicle Type */}
-            <div className="md:col-span-2">
+            <div className="md:col-span-4">
               <label className="block text-xs font-bold text-[#5f5e5c] mb-1.5">{t.vehicleType} <span className="text-red-500">*</span></label>
               <input
                 type="text"
                 value={vehicleType}
                 onChange={(e) => setVehicleType(e.target.value)}
-                placeholder={language === 'ar' ? 'مثال: تويوتا كامري ٢٠٢٤' : 'e.g., Toyota Camry 2024'}
+                placeholder={language === 'ar' ? 'مثال: سيارة سيدان' : 'e.g., Sedan car'}
                 className={`w-full p-2.5 bg-[#f8f9fa] border rounded-xl text-xs font-medium focus:outline-hidden focus:border-[#006b33] transition-all ${errors.vehicleType ? 'border-red-400 focus:border-red-400 bg-red-50/10' : 'border-[#cbd5e1]'}`}
               />
               {errors.vehicleType && <p className="text-[10px] text-[#c5221f] mt-1 font-bold">{errors.vehicleType}</p>}
             </div>
 
+            {/* Vehicle Model */}
+            <div className="md:col-span-3">
+              <label className="block text-xs font-bold text-[#5f5e5c] mb-1.5">{t.vehicleModel} <span className="text-red-500">*</span></label>
+              <input
+                type="text"
+                value={vehicleModel}
+                onChange={(e) => setVehicleModel(e.target.value)}
+                placeholder={language === 'ar' ? 'مثال: ٢٠٢٤' : 'e.g., 2024'}
+                className={`w-full p-2.5 bg-[#f8f9fa] border rounded-xl text-xs font-medium focus:outline-hidden focus:border-[#006b33] transition-all ${errors.vehicleModel ? 'border-red-400 focus:border-red-400 bg-red-50/10' : 'border-[#cbd5e1]'}`}
+              />
+              {errors.vehicleModel && <p className="text-[10px] text-[#c5221f] mt-1 font-bold">{errors.vehicleModel}</p>}
+            </div>
+
             {/* Plate Number */}
-            <div>
+            <div className="md:col-span-3">
               <label className="block text-xs font-bold text-[#5f5e5c] mb-1.5">{t.plateNumber} <span className="text-red-500">*</span></label>
               <input
                 type="text"
@@ -1711,20 +1730,20 @@ function AddPermitView({ language, onAdd, generateId, currentUser }: AddPermitVi
             </div>
 
             {/* Vehicle Color */}
-            <div>
+            <div className="md:col-span-2">
               <label className="block text-xs font-bold text-[#5f5e5c] mb-1.5">{t.vehicleColor} <span className="text-red-500">*</span></label>
               <input
                 type="text"
                 value={vehicleColor}
                 onChange={(e) => setVehicleColor(e.target.value)}
-                placeholder={language === 'ar' ? 'مثال: أبيض، فضي، أسود' : 'e.g., White, Silver, Black'}
+                placeholder={language === 'ar' ? 'أبيض، أسود' : 'White, Black'}
                 className={`w-full p-2.5 bg-[#f8f9fa] border rounded-xl text-xs font-medium focus:outline-hidden focus:border-[#006b33] transition-all ${errors.vehicleColor ? 'border-red-400 focus:border-red-400 bg-red-50/10' : 'border-[#cbd5e1]'}`}
               />
               {errors.vehicleColor && <p className="text-[10px] text-[#c5221f] mt-1 font-bold">{errors.vehicleColor}</p>}
             </div>
 
             {/* Start Date */}
-            <div className="md:col-span-2">
+            <div className="md:col-span-6">
               <HijriDatePicker
                 label={t.startDate}
                 value={startDate}
@@ -1735,7 +1754,7 @@ function AddPermitView({ language, onAdd, generateId, currentUser }: AddPermitVi
             </div>
 
             {/* End Date */}
-            <div className="md:col-span-2">
+            <div className="md:col-span-6">
               <HijriDatePicker
                 label={t.endDate}
                 value={endDate}
@@ -1864,6 +1883,7 @@ function EditPermitModal({ language, permit, onClose, onSave }: EditPermitModalP
   const [actualUser, setActualUser] = useState(permit.actualUser);
   const [actualUserId, setActualUserId] = useState(permit.actualUserId);
   const [vehicleType, setVehicleType] = useState(permit.vehicleType);
+  const [vehicleModel, setVehicleModel] = useState(permit.vehicleModel || '');
   const [plateNumber, setPlateNumber] = useState(permit.plateNumber);
   const [vehicleColor, setVehicleColor] = useState(permit.vehicleColor);
   const [startDate, setStartDate] = useState(permit.startDate);
@@ -1952,6 +1972,7 @@ function EditPermitModal({ language, permit, onClose, onSave }: EditPermitModalP
     if (!actualUser.trim()) newErrors.actualUser = language === 'ar' ? 'المستخدم الفعلي مطلوب' : 'Actual user is required';
     if (!actualUserId.trim() || !/^\d{10}$/.test(actualUserId)) newErrors.actualUserId = language === 'ar' ? 'رقم هوية المستخدم الفعلي يجب أن يتكون من 10 خانات' : 'Actual User ID must be 10 digits';
     if (!plateNumber.trim()) newErrors.plateNumber = language === 'ar' ? 'رقم اللوحة مطلوب' : 'Plate number is required';
+    if (!vehicleModel.trim()) newErrors.vehicleModel = language === 'ar' ? 'موديل السيارة مطلوب' : 'Vehicle model is required';
     if (!vehicleColor.trim()) newErrors.vehicleColor = language === 'ar' ? 'لون السيارة مطلوب' : 'Vehicle color is required';
     if (!startDate) newErrors.startDate = language === 'ar' ? 'تاريخ بداية التصريح مطلوب' : 'Start date is required';
     if (!endDate) newErrors.endDate = language === 'ar' ? 'تاريخ نهاية التصريح مطلوب' : 'End date is required';
@@ -1971,6 +1992,7 @@ function EditPermitModal({ language, permit, onClose, onSave }: EditPermitModalP
       actualUser,
       actualUserId,
       vehicleType,
+      vehicleModel,
       plateNumber,
       vehicleColor,
       startDate,
@@ -2091,8 +2113,8 @@ function EditPermitModal({ language, permit, onClose, onSave }: EditPermitModalP
               <Car className="h-4 w-4" />
               <span>{language === 'ar' ? 'السيارة وفترة التصريح' : 'Vehicle & Permit Dates'}</span>
             </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="sm:col-span-2">
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+              <div className="md:col-span-4">
                 <label className="block text-xs font-bold text-[#5f5e5c] mb-1.5">{t.vehicleType}</label>
                 <input
                   type="text"
@@ -2101,7 +2123,17 @@ function EditPermitModal({ language, permit, onClose, onSave }: EditPermitModalP
                   className="w-full p-2.5 bg-[#f8f9fa] border border-[#cbd5e1] rounded-xl text-xs font-medium focus:outline-hidden focus:border-[#006b33]"
                 />
               </div>
-              <div>
+              <div className="md:col-span-3">
+                <label className="block text-xs font-bold text-[#5f5e5c] mb-1.5">{t.vehicleModel}</label>
+                <input
+                  type="text"
+                  value={vehicleModel}
+                  onChange={(e) => setVehicleModel(e.target.value)}
+                  className="w-full p-2.5 bg-[#f8f9fa] border border-[#cbd5e1] rounded-xl text-xs font-medium focus:outline-hidden focus:border-[#006b33]"
+                />
+                {errors.vehicleModel && <p className="text-[10px] text-[#c5221f] mt-1 font-bold">{errors.vehicleModel}</p>}
+              </div>
+              <div className="md:col-span-3">
                 <label className="block text-xs font-bold text-[#5f5e5c] mb-1.5">{t.plateNumber}</label>
                 <input
                   type="text"
@@ -2111,7 +2143,7 @@ function EditPermitModal({ language, permit, onClose, onSave }: EditPermitModalP
                 />
                 {errors.plateNumber && <p className="text-[10px] text-[#c5221f] mt-1 font-bold">{errors.plateNumber}</p>}
               </div>
-              <div>
+              <div className="md:col-span-2">
                 <label className="block text-xs font-bold text-[#5f5e5c] mb-1.5">{t.vehicleColor}</label>
                 <input
                   type="text"
@@ -2121,7 +2153,7 @@ function EditPermitModal({ language, permit, onClose, onSave }: EditPermitModalP
                 />
                 {errors.vehicleColor && <p className="text-[10px] text-[#c5221f] mt-1 font-bold">{errors.vehicleColor}</p>}
               </div>
-              <div className="sm:col-span-2">
+              <div className="md:col-span-6">
                 <HijriDatePicker
                   label={t.startDate}
                   value={startDate}
@@ -2130,7 +2162,7 @@ function EditPermitModal({ language, permit, onClose, onSave }: EditPermitModalP
                   language={language}
                 />
               </div>
-              <div className="sm:col-span-2">
+              <div className="md:col-span-6">
                 <HijriDatePicker
                   label={t.endDate}
                   value={endDate}
@@ -2594,7 +2626,7 @@ function PrintablePermitCard({ permit, language }: { permit: Permit; language: L
         </div>
         <div className="border-b border-black/10 pb-2">
           <span className="text-[10px] text-gray-500 block font-bold">{isAr ? "نوع وموديل السيارة:" : "Vehicle Type & Model:"}</span>
-          <span className="font-bold">{permit.vehicleType}</span>
+          <span className="font-bold">{permit.vehicleType} &bull; {permit.vehicleModel}</span>
         </div>
 
         <div className="border-b border-black/10 pb-2">
@@ -2944,8 +2976,8 @@ function RenewPermitModal({ language, permit, onClose, onSave }: RenewPermitModa
               <span className="text-[#191c1d]">{permit.permitteeName}</span>
             </div>
             <div>
-              <span className="text-[#5f5e5c] block text-[10px] mb-0.5">{isAr ? 'نوع وموديل السيارة:' : 'Vehicle Type:'}</span>
-              <span className="text-[#191c1d]">{permit.vehicleType} &bull; <span className="font-mono">{permit.plateNumber}</span></span>
+              <span className="text-[#5f5e5c] block text-[10px] mb-0.5">{isAr ? 'نوع وموديل السيارة:' : 'Vehicle Type & Model:'}</span>
+              <span className="text-[#191c1d]">{permit.vehicleType} &bull; {permit.vehicleModel} &bull; <span className="font-mono">{permit.plateNumber}</span></span>
             </div>
             <div>
               <span className="text-[#5f5e5c] block text-[10px] mb-0.5">{isAr ? 'تاريخ نهاية التصريح الحالي:' : 'Current Expiry:'}</span>
@@ -3877,7 +3909,7 @@ function ViewPermitModal({ language, permit, onClose, onPrint, getPermitStatus }
                 <span className="text-[10px] text-gray-400 font-bold block mb-1">
                   {isAr ? "بيانات المركبة" : "Vehicle Details"}
                 </span>
-                <span className="font-bold text-sm text-gray-800 block">{permit.vehicleType}</span>
+                <span className="font-bold text-sm text-gray-800 block">{permit.vehicleType} ({permit.vehicleModel})</span>
                 <div className="flex gap-2 items-center mt-1">
                   <span className="text-[10px] bg-white border border-gray-200 px-2 py-0.5 rounded-md font-mono font-bold text-gray-800">
                     {permit.plateNumber}
