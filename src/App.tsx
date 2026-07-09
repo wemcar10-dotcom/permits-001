@@ -1392,13 +1392,12 @@ export default function App() {
     {/* PRINTABLE ARCHIVE SECTION (Shown only during print) */}
     <div id="print-section" className="hidden print:block font-arabic">
       {printTarget === 'all' ? (
-        <div className="space-y-12">
-          {permits.map((permit, idx) => (
-            <div key={permit.id} className={idx < permits.length - 1 ? "page-break" : ""}>
-              <PrintablePermitCard permit={permit} language={language} />
-            </div>
-          ))}
-        </div>
+        <PrintableAllPermitsTable 
+          permits={permits} 
+          language={language} 
+          getPermitStatus={getPermitStatus} 
+          currentUser={currentUser}
+        />
       ) : printTarget ? (
         <PrintablePermitCard permit={printTarget} language={language} />
       ) : printAttachment ? (
@@ -2567,7 +2566,7 @@ function PrintablePermitCard({ permit, language }: { permit: Permit; language: L
         {/* Emblem Placeholder / Center Logo */}
         <div className="flex flex-col items-center">
           <div className="h-16 w-16 border-2 border-black rounded-full flex items-center justify-center font-black text-center p-1 relative">
-            <span className="text-[10px] leading-tight font-extrabold">تصريح تظليل معتمد</span>
+            <span className="text-[10px] leading-tight font-extrabold">{isAr ? "مطابقة التصريح" : "Permit Match"}</span>
             <div className="absolute inset-0 rounded-full border border-black border-dashed m-1" />
           </div>
           <span className="text-xs font-black mt-2 tracking-widest font-mono">#{permit.id}</span>
@@ -2584,7 +2583,7 @@ function PrintablePermitCard({ permit, language }: { permit: Permit; language: L
       {/* Main Title */}
       <div className="text-center mb-6">
         <h2 className="text-lg font-black underline tracking-wide uppercase">
-          {isAr ? "تصريح تظليل مركبة رسمي معتمد" : "Official Certified Vehicle Shading Permit"}
+          {isAr ? "مطابقة تصريح تظليل" : "Shading Permit Verification"}
         </h2>
         <p className="text-[10px] text-gray-600 mt-1">
           {isAr ? "تم إصدار هذا المستند تلقائياً من نظام أرشيف تصاريح التظليل الإلكتروني الموحد" : "This document was issued automatically by the Unified Electronic Shading Permits Archive"}
@@ -2677,7 +2676,7 @@ function PrintablePermitCard({ permit, language }: { permit: Permit; language: L
         {/* Status Stamp */}
         <div className="text-center">
           <div className="border-[3px] border-double border-black px-6 py-2 rounded-lg font-black text-sm uppercase tracking-wider inline-block">
-            {isAr ? "المرور - معتمد" : "TRAFFIC - APPROVED"}
+            {isAr ? "مطابقة المعلومات" : "INFORMATION VERIFICATION"}
           </div>
           <div className="text-[10px] text-gray-500 mt-1 font-bold">
             {isAr ? "الحالة حالياً: " : "Current Status: "}
@@ -2717,6 +2716,143 @@ function PrintablePermitCard({ permit, language }: { permit: Permit; language: L
             <li>This digital or printed permit must be presented to traffic patrol officers or inspectors upon request.</li>
           </ul>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ======================== PRINTABLE ALL PERMITS TABLE ========================
+interface PrintableAllPermitsTableProps {
+  permits: Permit[];
+  language: Language;
+  getPermitStatus: (endDate: string) => 'Valid' | 'Expired';
+  currentUser: UserAccount | null;
+}
+
+function PrintableAllPermitsTable({ permits, language, getPermitStatus, currentUser }: PrintableAllPermitsTableProps) {
+  const isAr = language === 'ar';
+  const printDateH = gregorianToHijri(new Date());
+
+  return (
+    <div className="w-full p-4 bg-white text-black font-arabic text-xs leading-normal">
+      {/* Official Header */}
+      <div className="flex justify-between items-center border-b-2 border-black pb-4 mb-6">
+        <div className="text-right text-[11px] space-y-1 font-bold">
+          <p>المملكة العربية السعودية</p>
+          <p>وزارة الداخلية</p>
+          <p>أرشيف تصاريح التظليل الموحد</p>
+          <p className="font-mono text-[9px]">تاريخ الطباعة: {formatHijriDate(printDateH, 'ar')}</p>
+        </div>
+        
+        {/* Emblem Placeholder / Center Title */}
+        <div className="flex flex-col items-center">
+          <div className="h-14 w-14 border-2 border-black rounded-full flex items-center justify-center font-black text-center p-1 relative">
+            <span className="text-[9px] leading-tight font-extrabold text-center">بيان رسمي معتمد</span>
+            <div className="absolute inset-0 rounded-full border border-black border-dashed m-1" />
+          </div>
+          <span className="text-[10px] font-black mt-1 tracking-wider text-gray-700">{isAr ? `عدد التصاريح: ${permits.length}` : `Permits Count: ${permits.length}`}</span>
+        </div>
+
+        <div className="text-left text-[11px] space-y-1 font-bold font-sans">
+          <p>Kingdom of Saudi Arabia</p>
+          <p>Ministry of Interior</p>
+          <p>Unified Shading Permits Archive</p>
+          <p className="font-mono text-[9px]">Print Date: {formatHijriDate(printDateH, 'en')}</p>
+        </div>
+      </div>
+
+      {/* Main Title */}
+      <div className="text-center mb-6">
+        <h2 className="text-base font-black underline tracking-wide uppercase">
+          {isAr ? "كشف إجمالي بجميع تصاريح التظليل الصادرة والمسجلة بالنظام" : "Comprehensive Report of All Issued and Registered Shading Permits"}
+        </h2>
+        <p className="text-[9px] text-gray-600 mt-1">
+          {isAr 
+            ? "يحتوي هذا التقرير على قائمة تفصيلية بالمركبات الحاصلة على تصريح تظليل رسمي ساري المفعول أو منتهي" 
+            : "This report contains a detailed list of vehicles holding an official valid or expired shading permit"}
+        </p>
+      </div>
+
+      {/* Table */}
+      <table className="w-full border-collapse border border-black text-[11px] text-black">
+        <thead>
+          <tr className="bg-gray-100">
+            <th className="border border-black p-2 text-center font-bold">{isAr ? "م" : "No."}</th>
+            <th className="border border-black p-2 text-center font-bold">{isAr ? "رقم التصريح" : "Permit ID"}</th>
+            <th className="border border-black p-2 text-center font-bold">{isAr ? "الاسم المصرح له" : "Permittee Name"}</th>
+            <th className="border border-black p-2 text-center font-bold">{isAr ? "المستفيد الفعلي" : "Actual User"}</th>
+            <th className="border border-black p-2 text-center font-bold">{isAr ? "بيانات المركبة" : "Vehicle Specs"}</th>
+            <th className="border border-black p-2 text-center font-bold">{isAr ? "المالك" : "Owner Name"}</th>
+            <th className="border border-black p-2 text-center font-bold">{isAr ? "فترة الصلاحية" : "Validity"}</th>
+            <th className="border border-black p-2 text-center font-bold">{isAr ? "الحالة" : "Status"}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {permits.map((permit, idx) => {
+            const status = getPermitStatus(permit.endDate);
+            return (
+              <tr key={permit.id} className="hover:bg-gray-50">
+                <td className="border border-black p-2 text-center font-mono">{idx + 1}</td>
+                <td className="border border-black p-2 text-center font-bold font-mono">#{permit.id}</td>
+                <td className="border border-black p-2 font-bold text-start">{permit.permitteeName}</td>
+                <td className="border border-black p-2 text-start">
+                  <div className="font-medium">{permit.actualUser}</div>
+                  <div className="text-[9px] text-gray-500 font-mono mt-0.5">{permit.actualUserId}</div>
+                </td>
+                <td className="border border-black p-2 text-start">
+                  <div className="font-medium">{permit.vehicleType}</div>
+                  <div className="text-[9px] text-gray-600 mt-0.5">
+                    {isAr ? 'الموديل' : 'Model'}: {permit.vehicleModel || '-'} &bull; {isAr ? 'اللون' : 'Color'}: {permit.vehicleColor}
+                  </div>
+                  <div className="text-[10px] font-bold font-mono text-green-800 mt-0.5 bg-green-50 inline-block px-1 rounded border border-green-200">
+                    {permit.plateNumber}
+                  </div>
+                </td>
+                <td className="border border-black p-2 text-start">
+                  <div className="font-medium">{permit.ownerName}</div>
+                  <div className="text-[9px] text-gray-500 font-mono mt-0.5">{permit.ownerId}</div>
+                </td>
+                <td className="border border-black p-2 text-center font-mono text-[10px]">
+                  <div>
+                    <span className="text-gray-500 text-[9px]">{isAr ? 'من:' : 'From:'}</span> {formatHijriString(permit.startDate, language)}
+                  </div>
+                  <div className="mt-1">
+                    <span className="text-gray-500 text-[9px]">{isAr ? 'إلى:' : 'To:'}</span> {formatHijriString(permit.endDate, language)}
+                  </div>
+                </td>
+                <td className="border border-black p-2 text-center">
+                  <span className={`inline-block px-2 py-1 rounded-md text-[10px] font-bold ${
+                    status === 'Valid' 
+                      ? 'bg-green-100 text-green-800 border border-green-300' 
+                      : 'bg-red-100 text-red-800 border border-red-300'
+                  }`}>
+                    {status === 'Valid' 
+                      ? (isAr ? 'ساري' : 'Valid') 
+                      : (isAr ? 'منتهي' : 'Expired')}
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+
+      {/* Footer / Verification Stamp */}
+      <div className="mt-12 flex justify-between items-start text-xs">
+        <div className="space-y-1">
+          <p className="font-bold">{isAr ? "ملاحظة هامة:" : "Important Note:"}</p>
+          <p className="text-[10px] text-gray-600 max-w-md">
+            {isAr 
+              ? "يُعتبر هذا الكشف مستنداً رسمياً مرجعياً مصاحباً للأنظمة المعتمدة لتدقيق تصاريح التظليل. أي تعديل أو شطب في البيانات يلغي هذا الكشف ويُعرض فاعله للمساءلة القانونية." 
+              : "This report is an official reference document associated with the approved shading permits auditing systems. Any alteration void this document and exposes the perpetrator to legal liability."}
+          </p>
+        </div>
+        
+        <div className="text-center space-y-10 min-w-[180px]">
+          <p className="font-bold">{isAr ? "توقيع وختم المسؤول المختص" : "Authorized Official Signature"}</p>
+          <div className="border-b border-dashed border-black w-full h-4"></div>
+          <p className="text-[9px] text-gray-400 font-mono">ID: {currentUser?.username || 'System'}</p>
+        </div>
       </div>
     </div>
   );
