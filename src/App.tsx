@@ -17,6 +17,12 @@ import {
 import { db } from './firebase';
 import { collection, onSnapshot, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 
+// Helper: Convert Eastern Arabic numerals (٠-٩) to standard English numerals (0-9)
+export const toEnglishNumerals = (str: string): string => {
+  const arabicMap = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+  return str.replace(/[٠-٩]/g, (d) => arabicMap.indexOf(d).toString());
+};
+
 export default function App() {
   // 1. Language state: Arabic by default, load from localStorage if exists
   const [language, setLanguage] = useState<Language>(() => {
@@ -1450,6 +1456,21 @@ function AddPermitView({ language, onAdd, generateId, currentUser }: AddPermitVi
   // Errors state
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
 
+  const copyPermitteeToOwner = () => {
+    setOwnerName(permitteeName);
+    setOwnerId(permitteeId);
+  };
+
+  const copyPermitteeToActualUser = () => {
+    setActualUser(permitteeName);
+    setActualUserId(permitteeId);
+  };
+
+  const copyOwnerToActualUser = () => {
+    setActualUser(ownerName);
+    setActualUserId(ownerId);
+  };
+
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -1519,22 +1540,22 @@ function AddPermitView({ language, onAdd, generateId, currentUser }: AddPermitVi
     e.preventDefault();
     const newErrors: { [key: string]: string } = {};
 
+    const cleanPermitteeId = toEnglishNumerals(permitteeId).replace(/\s/g, '');
+    const cleanOwnerId = toEnglishNumerals(ownerId).replace(/\s/g, '');
+    const cleanActualUserId = toEnglishNumerals(actualUserId).replace(/\s/g, '');
+
     if (!permitteeName.trim()) newErrors.permitteeName = language === 'ar' ? 'الاسم المصرح له مطلوب' : 'Permittee name is required';
-    if (!permitteeId.trim() || !/^\d{10}$/.test(permitteeId)) newErrors.permitteeId = language === 'ar' ? 'رقم الهوية يجب أن يتكون من 10 خانات رقمية' : 'ID must be exactly 10 digits';
+    if (!permitteeId.trim() || !/^\d{10}$/.test(cleanPermitteeId)) newErrors.permitteeId = language === 'ar' ? 'رقم الهوية يجب أن يتكون من 10 خانات رقمية' : 'ID must be exactly 10 digits';
     if (!ownerName.trim()) newErrors.ownerName = language === 'ar' ? 'اسم المالك مطلوب' : 'Owner name is required';
-    if (!ownerId.trim() || !/^\d{10}$/.test(ownerId)) newErrors.ownerId = language === 'ar' ? 'رقم هوية المالك يجب أن يتكون من 10 خانات' : 'Owner ID must be 10 digits';
+    if (!ownerId.trim() || !/^\d{10}$/.test(cleanOwnerId)) newErrors.ownerId = language === 'ar' ? 'رقم هوية المالك يجب أن يتكون من 10 خانات' : 'Owner ID must be 10 digits';
     if (!actualUser.trim()) newErrors.actualUser = language === 'ar' ? 'المستخدم الفعلي مطلوب' : 'Actual user is required';
-    if (!actualUserId.trim() || !/^\d{10}$/.test(actualUserId)) newErrors.actualUserId = language === 'ar' ? 'رقم هوية المستخدم الفعلي يجب أن يتكون من 10 خانات' : 'Actual User ID must be 10 digits';
+    if (!actualUserId.trim() || !/^\d{10}$/.test(cleanActualUserId)) newErrors.actualUserId = language === 'ar' ? 'رقم هوية المستخدم الفعلي يجب أن يتكون من 10 خانات' : 'Actual User ID must be 10 digits';
     if (!plateNumber.trim()) newErrors.plateNumber = language === 'ar' ? 'رقم اللوحة مطلوب' : 'Plate number is required';
     if (!vehicleModel.trim()) newErrors.vehicleModel = language === 'ar' ? 'موديل السيارة مطلوب' : 'Vehicle model is required';
     if (!vehicleColor.trim()) newErrors.vehicleColor = language === 'ar' ? 'لون السيارة مطلوب' : 'Vehicle color is required';
     if (!startDate) newErrors.startDate = language === 'ar' ? 'تاريخ بداية التصريح مطلوب' : 'Start date is required';
     if (!endDate) newErrors.endDate = language === 'ar' ? 'تاريخ نهاية التصريح مطلوب' : 'End date is required';
     else if (endDate < startDate) newErrors.endDate = language === 'ar' ? 'تاريخ نهاية التصريح لا يمكن أن يكون قبل تاريخ البداية' : 'End date cannot be earlier than start date';
-
-    if (attachedFiles.length === 0) {
-      newErrors.files = language === 'ar' ? 'يرجى إرفاق مستند واحد على الأقل في قسم المستندات' : 'At least one supporting document must be attached';
-    }
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
@@ -1544,11 +1565,11 @@ function AddPermitView({ language, onAdd, generateId, currentUser }: AddPermitVi
     const newPermit: Permit = {
       id: autoId,
       permitteeName,
-      permitteeId,
+      permitteeId: cleanPermitteeId,
       ownerName,
-      ownerId,
+      ownerId: cleanOwnerId,
       actualUser,
-      actualUserId,
+      actualUserId: cleanActualUserId,
       vehicleType,
       vehicleModel,
       plateNumber,
@@ -1610,7 +1631,7 @@ function AddPermitView({ language, onAdd, generateId, currentUser }: AddPermitVi
               <input
                 type="text"
                 value={permitteeId}
-                onChange={(e) => setPermitteeId(e.target.value.replace(/\D/g, '').substring(0, 10))}
+                onChange={(e) => setPermitteeId(toEnglishNumerals(e.target.value).replace(/\D/g, '').substring(0, 10))}
                 placeholder="e.g. 1023456789"
                 className={`w-full p-2.5 bg-[#f8f9fa] border rounded-xl text-xs font-mono focus:outline-hidden focus:border-[#006b33] transition-all ${errors.permitteeId ? 'border-red-400 focus:border-red-400 bg-red-50/10' : 'border-[#cbd5e1]'}`}
               />
@@ -1619,7 +1640,19 @@ function AddPermitView({ language, onAdd, generateId, currentUser }: AddPermitVi
 
             {/* Owner Name */}
             <div>
-              <label className="block text-xs font-bold text-[#5f5e5c] mb-1.5">{t.ownerName} <span className="text-red-500">*</span></label>
+              <div className="flex justify-between items-center mb-1.5">
+                <label className="block text-xs font-bold text-[#5f5e5c]">{t.ownerName} <span className="text-red-500">*</span></label>
+                {permitteeName && (
+                  <button
+                    type="button"
+                    onClick={copyPermitteeToOwner}
+                    className="text-[10px] text-[#006b33] hover:underline font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <User className="h-3 w-3" />
+                    <span>{language === 'ar' ? 'المالك هو نفسه المصرح له' : 'Owner is same as Permittee'}</span>
+                  </button>
+                )}
+              </div>
               <input
                 type="text"
                 value={ownerName}
@@ -1636,7 +1669,7 @@ function AddPermitView({ language, onAdd, generateId, currentUser }: AddPermitVi
               <input
                 type="text"
                 value={ownerId}
-                onChange={(e) => setOwnerId(e.target.value.replace(/\D/g, '').substring(0, 10))}
+                onChange={(e) => setOwnerId(toEnglishNumerals(e.target.value).replace(/\D/g, '').substring(0, 10))}
                 placeholder="e.g. 7012345678"
                 className={`w-full p-2.5 bg-[#f8f9fa] border rounded-xl text-xs font-mono focus:outline-hidden focus:border-[#006b33] transition-all ${errors.ownerId ? 'border-red-400 focus:border-red-400 bg-red-50/10' : 'border-[#cbd5e1]'}`}
               />
@@ -1655,7 +1688,29 @@ function AddPermitView({ language, onAdd, generateId, currentUser }: AddPermitVi
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Actual User Name */}
             <div>
-              <label className="block text-xs font-bold text-[#5f5e5c] mb-1.5">{t.actualUser} <span className="text-red-500">*</span></label>
+              <div className="flex justify-between items-center mb-1.5">
+                <label className="block text-xs font-bold text-[#5f5e5c]">{t.actualUser} <span className="text-red-500">*</span></label>
+                <div className="flex gap-2.5">
+                  {permitteeName && (
+                    <button
+                      type="button"
+                      onClick={copyPermitteeToActualUser}
+                      className="text-[10px] text-[#006b33] hover:underline font-bold flex items-center gap-0.5 cursor-pointer"
+                    >
+                      <span>{language === 'ar' ? 'المستخدم هو المصرح له' : 'User is Permittee'}</span>
+                    </button>
+                  )}
+                  {ownerName && ownerName !== permitteeName && (
+                    <button
+                      type="button"
+                      onClick={copyOwnerToActualUser}
+                      className="text-[10px] text-blue-700 hover:underline font-bold flex items-center gap-0.5 cursor-pointer"
+                    >
+                      <span>{language === 'ar' ? 'المستخدم هو المالك' : 'User is Owner'}</span>
+                    </button>
+                  )}
+                </div>
+              </div>
               <input
                 type="text"
                 value={actualUser}
@@ -1672,7 +1727,7 @@ function AddPermitView({ language, onAdd, generateId, currentUser }: AddPermitVi
               <input
                 type="text"
                 value={actualUserId}
-                onChange={(e) => setActualUserId(e.target.value.replace(/\D/g, '').substring(0, 10))}
+                onChange={(e) => setActualUserId(toEnglishNumerals(e.target.value).replace(/\D/g, '').substring(0, 10))}
                 placeholder="e.g. 2412345678"
                 className={`w-full p-2.5 bg-[#f8f9fa] border rounded-xl text-xs font-mono focus:outline-hidden focus:border-[#006b33] transition-all ${errors.actualUserId ? 'border-red-400 focus:border-red-400 bg-red-50/10' : 'border-[#cbd5e1]'}`}
               />
@@ -1895,6 +1950,21 @@ function EditPermitModal({ language, permit, onClose, onSave }: EditPermitModalP
 
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
 
+  const copyPermitteeToOwner = () => {
+    setOwnerName(permitteeName);
+    setOwnerId(permitteeId);
+  };
+
+  const copyPermitteeToActualUser = () => {
+    setActualUser(permitteeName);
+    setActualUserId(permitteeId);
+  };
+
+  const copyOwnerToActualUser = () => {
+    setActualUser(ownerName);
+    setActualUserId(ownerId);
+  };
+
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -1964,12 +2034,16 @@ function EditPermitModal({ language, permit, onClose, onSave }: EditPermitModalP
     e.preventDefault();
     const newErrors: { [key: string]: string } = {};
 
+    const cleanPermitteeId = toEnglishNumerals(permitteeId).replace(/\s/g, '');
+    const cleanOwnerId = toEnglishNumerals(ownerId).replace(/\s/g, '');
+    const cleanActualUserId = toEnglishNumerals(actualUserId).replace(/\s/g, '');
+
     if (!permitteeName.trim()) newErrors.permitteeName = language === 'ar' ? 'الاسم المصرح له مطلوب' : 'Permittee name is required';
-    if (!permitteeId.trim() || !/^\d{10}$/.test(permitteeId)) newErrors.permitteeId = language === 'ar' ? 'رقم الهوية يجب أن يتكون من 10 خانات' : 'ID must be 10 digits';
+    if (!permitteeId.trim() || !/^\d{10}$/.test(cleanPermitteeId)) newErrors.permitteeId = language === 'ar' ? 'رقم الهوية يجب أن يتكون من 10 خانات' : 'ID must be 10 digits';
     if (!ownerName.trim()) newErrors.ownerName = language === 'ar' ? 'اسم المالك مطلوب' : 'Owner name is required';
-    if (!ownerId.trim() || !/^\d{10}$/.test(ownerId)) newErrors.ownerId = language === 'ar' ? 'رقم هوية المالك يجب أن يتكون من 10 خانات' : 'Owner ID must be 10 digits';
+    if (!ownerId.trim() || !/^\d{10}$/.test(cleanOwnerId)) newErrors.ownerId = language === 'ar' ? 'رقم هوية المالك يجب أن يتكون من 10 خانات' : 'Owner ID must be 10 digits';
     if (!actualUser.trim()) newErrors.actualUser = language === 'ar' ? 'المستخدم الفعلي مطلوب' : 'Actual user is required';
-    if (!actualUserId.trim() || !/^\d{10}$/.test(actualUserId)) newErrors.actualUserId = language === 'ar' ? 'رقم هوية المستخدم الفعلي يجب أن يتكون من 10 خانات' : 'Actual User ID must be 10 digits';
+    if (!actualUserId.trim() || !/^\d{10}$/.test(cleanActualUserId)) newErrors.actualUserId = language === 'ar' ? 'رقم هوية المستخدم الفعلي يجب أن يتكون من 10 خانات' : 'Actual User ID must be 10 digits';
     if (!plateNumber.trim()) newErrors.plateNumber = language === 'ar' ? 'رقم اللوحة مطلوب' : 'Plate number is required';
     if (!vehicleModel.trim()) newErrors.vehicleModel = language === 'ar' ? 'موديل السيارة مطلوب' : 'Vehicle model is required';
     if (!vehicleColor.trim()) newErrors.vehicleColor = language === 'ar' ? 'لون السيارة مطلوب' : 'Vehicle color is required';
@@ -1985,11 +2059,11 @@ function EditPermitModal({ language, permit, onClose, onSave }: EditPermitModalP
     const updatedPermit: Permit = {
       ...permit,
       permitteeName,
-      permitteeId,
+      permitteeId: cleanPermitteeId,
       ownerName,
-      ownerId,
+      ownerId: cleanOwnerId,
       actualUser,
-      actualUserId,
+      actualUserId: cleanActualUserId,
       vehicleType,
       vehicleModel,
       plateNumber,
@@ -2048,13 +2122,25 @@ function EditPermitModal({ language, permit, onClose, onSave }: EditPermitModalP
                 <input
                   type="text"
                   value={permitteeId}
-                  onChange={(e) => setPermitteeId(e.target.value.replace(/\D/g, '').substring(0, 10))}
+                  onChange={(e) => setPermitteeId(toEnglishNumerals(e.target.value).replace(/\D/g, '').substring(0, 10))}
                   className="w-full p-2.5 bg-[#f8f9fa] border border-[#cbd5e1] rounded-xl text-xs font-mono focus:outline-hidden focus:border-[#006b33]"
                 />
                 {errors.permitteeId && <p className="text-[10px] text-[#c5221f] mt-1 font-bold">{errors.permitteeId}</p>}
               </div>
               <div>
-                <label className="block text-xs font-bold text-[#5f5e5c] mb-1.5">{t.ownerName}</label>
+                <div className="flex justify-between items-center mb-1.5">
+                  <label className="block text-xs font-bold text-[#5f5e5c]">{t.ownerName}</label>
+                  {permitteeName && (
+                    <button
+                      type="button"
+                      onClick={copyPermitteeToOwner}
+                      className="text-[10px] text-[#006b33] hover:underline font-bold flex items-center gap-1 cursor-pointer font-sans"
+                    >
+                      <User className="h-3 w-3" />
+                      <span>{language === 'ar' ? 'المالك هو نفسه المصرح له' : 'Owner is same as Permittee'}</span>
+                    </button>
+                  )}
+                </div>
                 <input
                   type="text"
                   value={ownerName}
@@ -2068,7 +2154,7 @@ function EditPermitModal({ language, permit, onClose, onSave }: EditPermitModalP
                 <input
                   type="text"
                   value={ownerId}
-                  onChange={(e) => setOwnerId(e.target.value.replace(/\D/g, '').substring(0, 10))}
+                  onChange={(e) => setOwnerId(toEnglishNumerals(e.target.value).replace(/\D/g, '').substring(0, 10))}
                   className="w-full p-2.5 bg-[#f8f9fa] border border-[#cbd5e1] rounded-xl text-xs font-mono focus:outline-hidden focus:border-[#006b33]"
                 />
                 {errors.ownerId && <p className="text-[10px] text-[#c5221f] mt-1 font-bold">{errors.ownerId}</p>}
@@ -2084,7 +2170,29 @@ function EditPermitModal({ language, permit, onClose, onSave }: EditPermitModalP
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-bold text-[#5f5e5c] mb-1.5">{t.actualUser}</label>
+                <div className="flex justify-between items-center mb-1.5">
+                  <label className="block text-xs font-bold text-[#5f5e5c]">{t.actualUser}</label>
+                  <div className="flex gap-2 text-[10px]">
+                    {permitteeName && (
+                      <button
+                        type="button"
+                        onClick={copyPermitteeToActualUser}
+                        className="text-[#006b33] hover:underline font-bold cursor-pointer font-sans"
+                      >
+                        {language === 'ar' ? 'المستخدم هو المصرح له' : 'User is Permittee'}
+                      </button>
+                    )}
+                    {ownerName && ownerName !== permitteeName && (
+                      <button
+                        type="button"
+                        onClick={copyOwnerToActualUser}
+                        className="text-blue-700 hover:underline font-bold cursor-pointer font-sans"
+                      >
+                        {language === 'ar' ? 'المستخدم هو المالك' : 'User is Owner'}
+                      </button>
+                    )}
+                  </div>
+                </div>
                 <input
                   type="text"
                   value={actualUser}
@@ -2098,7 +2206,7 @@ function EditPermitModal({ language, permit, onClose, onSave }: EditPermitModalP
                 <input
                   type="text"
                   value={actualUserId}
-                  onChange={(e) => setActualUserId(e.target.value.replace(/\D/g, '').substring(0, 10))}
+                  onChange={(e) => setActualUserId(toEnglishNumerals(e.target.value).replace(/\D/g, '').substring(0, 10))}
                   className="w-full p-2.5 bg-[#f8f9fa] border border-[#cbd5e1] rounded-xl text-xs font-mono focus:outline-hidden focus:border-[#006b33]"
                 />
                 {errors.actualUserId && <p className="text-[10px] text-[#c5221f] mt-1 font-bold">{errors.actualUserId}</p>}
