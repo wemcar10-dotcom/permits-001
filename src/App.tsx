@@ -2,8 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   FileText, Plus, Search, Edit2, Trash2, CheckCircle, AlertTriangle, 
   Globe, Car, User, Download, X, UserCheck, RefreshCw, FileUp, Printer,
-  LogOut, Lock, Users, Clock, Calendar, Eye, Database, WifiOff
+  LogOut, Lock, Users, Clock, Calendar, Eye, Database, WifiOff, FileSpreadsheet
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { Permit, Language, AttachmentFile, UserAccount } from './types';
 import { INITIAL_PERMITS, TRANSLATIONS } from './data';
 import { motion, AnimatePresence } from 'motion/react';
@@ -452,6 +453,129 @@ export default function App() {
       console.error(err);
       triggerNotification(
         language === 'ar' ? 'فشل تصدير النسخة الاحتياطية' : 'Failed to export backup',
+        'error'
+      );
+    }
+  };
+
+  // Excel Export
+  const handleExportExcel = (type: 'all' | 'filtered') => {
+    try {
+      const listToExport = type === 'filtered' ? filteredPermits : permits;
+      
+      if (listToExport.length === 0) {
+        triggerNotification(
+          language === 'ar' ? 'لا توجد بيانات للتصدير!' : 'No data available to export!',
+          'error'
+        );
+        return;
+      }
+
+      // Prepare headers
+      const headers = [
+        language === 'ar' ? "رقم التصريح" : "Permit ID",
+        language === 'ar' ? "الاسم المصرح له" : "Permittee Name",
+        language === 'ar' ? "رقم هوية المصرح له" : "Permittee ID",
+        language === 'ar' ? "اسم المالك" : "Owner Name",
+        language === 'ar' ? "رقم هوية المالك" : "Owner ID",
+        language === 'ar' ? "المستخدم الفعلي" : "Actual User",
+        language === 'ar' ? "رقم هوية المستخدم الفعلي" : "Actual User ID",
+        language === 'ar' ? "نوع السيارة" : "Vehicle Type",
+        language === 'ar' ? "موديل السيارة" : "Vehicle Model",
+        language === 'ar' ? "رقم اللوحة" : "Plate Number",
+        language === 'ar' ? "لون السيارة" : "Vehicle Color",
+        language === 'ar' ? "تاريخ البداية (هجري)" : "Start Date (Hijri)",
+        language === 'ar' ? "تاريخ النهاية (هجري)" : "End Date (Hijri)",
+        language === 'ar' ? "حالة التصريح" : "Status",
+        language === 'ar' ? "منشئ التصريح" : "Created By",
+        language === 'ar' ? "عدد المرفقات" : "Attachments Count",
+        language === 'ar' ? "أسماء المرفقات" : "Attachment Names"
+      ];
+
+      // Format data rows
+      const rows = listToExport.map(permit => {
+        const statusText = getPermitStatus(permit.endDate) === 'Valid' 
+          ? (language === 'ar' ? 'ساري 🟢' : 'Valid 🟢')
+          : (language === 'ar' ? 'منتهي 🔴' : 'Expired 🔴');
+
+        const attachmentNames = (permit.attachments || []).map(att => `${att.name} (${att.size})`).join(' | ');
+        const attachmentCount = (permit.attachments || []).length;
+
+        return [
+          permit.id,
+          permit.permitteeName,
+          permit.permitteeId,
+          permit.ownerName,
+          permit.ownerId,
+          permit.actualUser,
+          permit.actualUserId,
+          permit.vehicleType,
+          permit.vehicleModel,
+          permit.plateNumber,
+          permit.vehicleColor,
+          permit.startDate,
+          permit.endDate,
+          statusText,
+          permit.createdBy || '',
+          attachmentCount,
+          attachmentNames
+        ];
+      });
+
+      // Create sheet
+      const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+
+      // Dynamic column width calculation
+      const colWidths = headers.map((hdr, i) => {
+        let maxLen = hdr.length;
+        rows.forEach(row => {
+          const valStr = String(row[i] || '');
+          if (valStr.length > maxLen) {
+            maxLen = valStr.length;
+          }
+        });
+        // Limit max width to 45 chars for neatness, min width 12
+        return { wch: Math.min(Math.max(maxLen + 3, 12), 45) };
+      });
+      worksheet['!cols'] = colWidths;
+
+      // Enable right-to-left layout for Arabic spreadsheet
+      if (language === 'ar') {
+        worksheet['!views'] = [{ RTL: true }];
+      }
+
+      // Create workbook and append sheet
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(
+        workbook, 
+        worksheet, 
+        language === 'ar' ? "التصاريح المصدرة" : "Exported Permits"
+      );
+
+      // Write file
+      const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+      const fileBlob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=UTF-8' });
+      
+      const downloadAnchor = document.createElement('a');
+      const objectUrl = URL.createObjectURL(fileBlob);
+      downloadAnchor.href = objectUrl;
+      downloadAnchor.download = type === 'filtered' 
+        ? `permits_filtered_report_${new Date().toISOString().slice(0, 10)}.xlsx`
+        : `permits_full_report_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      document.body.removeChild(downloadAnchor);
+      URL.revokeObjectURL(objectUrl);
+
+      triggerNotification(
+        language === 'ar' ? 'تم تصدير ملف اكسل Excel بنجاح!' : 'Excel report exported successfully!',
+        'success'
+      );
+    } catch (err) {
+      console.error("Failed to export Excel:", err);
+      triggerNotification(
+        language === 'ar' ? 'عذراً، فشل تصدير ملف الاكسل' : 'Failed to export Excel file',
         'error'
       );
     }
@@ -973,6 +1097,19 @@ export default function App() {
               <Download className="h-3.5 w-3.5" />
               <span>{language === 'ar' ? 'حفظ نسخة احتياطية للجهاز' : 'Export Backup'}</span>
             </button>
+
+            <button
+              onClick={() => handleExportExcel('all')}
+              className={`px-3.5 py-2 text-xs font-bold border rounded-xl shadow-3xs transition-all cursor-pointer flex items-center gap-1.5 ${
+                dbStatus === 'online'
+                  ? 'text-emerald-900 bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-300'
+                  : 'text-emerald-800 bg-emerald-50 hover:bg-emerald-100/70 border-emerald-200'
+              }`}
+              title={language === 'ar' ? 'تصدير كافة التصاريح الحالية إلى ملف Excel' : 'Export all permits to Excel'}
+            >
+              <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" />
+              <span>{language === 'ar' ? 'تصدير كامل لقاعدة البيانات (Excel)' : 'Export Full DB (Excel)'}</span>
+            </button>
             
             <button
               onClick={handleResetLocalDatabase}
@@ -1134,12 +1271,23 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="text-xs font-bold text-[#5f5e5c] shrink-0">
-                    {language === 'ar' ? (
-                      <>عدد النتائج المطابقة: <span className="text-[#006b33] font-mono font-black">{filteredPermits.length}</span> من <span className="font-mono">{permits.length}</span></>
-                    ) : (
-                      <>Matching results: <span className="text-[#006b33] font-mono font-black">{filteredPermits.length}</span> of <span className="font-mono">{permits.length}</span></>
-                    )}
+                  <div className="flex flex-wrap items-center gap-4 shrink-0">
+                    <div className="text-xs font-bold text-[#5f5e5c]">
+                      {language === 'ar' ? (
+                        <>عدد النتائج المطابقة: <span className="text-[#006b33] font-mono font-black">{filteredPermits.length}</span> من <span className="font-mono">{permits.length}</span></>
+                      ) : (
+                        <>Matching results: <span className="text-[#006b33] font-mono font-black">{filteredPermits.length}</span> of <span className="font-mono">{permits.length}</span></>
+                      )}
+                    </div>
+
+                    <button
+                      onClick={() => handleExportExcel('filtered')}
+                      className="px-3.5 py-2 text-xs font-bold text-white bg-[#107c41] hover:bg-[#0b592e] border border-[#0d6e39] rounded-xl shadow-3xs transition-all cursor-pointer flex items-center gap-1.5 active:scale-95"
+                      title={language === 'ar' ? 'تصدير النتائج الحالية المصفّحة إلى ملف Excel' : 'Export current filtered results to Excel'}
+                    >
+                      <FileSpreadsheet className="h-3.5 w-3.5 text-white" />
+                      <span>{language === 'ar' ? 'تصدير الجدول الحالي (Excel)' : 'Export Table (Excel)'}</span>
+                    </button>
                   </div>
                 </div>
               )}
