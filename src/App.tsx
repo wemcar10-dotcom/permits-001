@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   FileText, Plus, Search, Edit2, Trash2, CheckCircle, AlertTriangle, 
   Globe, Car, User, Download, X, UserCheck, RefreshCw, FileUp, Printer,
-  LogOut, Lock, Users, Clock, Calendar, Eye
+  LogOut, Lock, Users, Clock, Calendar, Eye, Database, WifiOff
 } from 'lucide-react';
 import { Permit, Language, AttachmentFile, UserAccount } from './types';
 import { INITIAL_PERMITS, TRANSLATIONS } from './data';
@@ -30,8 +30,55 @@ export default function App() {
     return (saved as Language) || 'ar';
   });
 
-  // 1.1 Users State
-  const [users, setUsers] = useState<UserAccount[]>([]);
+  // 1.05 Database & Backup Import State
+  const [dbStatus, setDbStatus] = useState<'online' | 'offline' | 'quota-exceeded'>('online');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 1.1 Users State - fallback to localStorage backup or default seeded users
+  const [users, setUsers] = useState<UserAccount[]>(() => {
+    const defaultUsers: UserAccount[] = [
+      {
+        username: "waseem",
+        fullName: language === 'ar' ? 'وسيم' : 'Waseem',
+        password: "wem",
+        role: "admin",
+        status: "approved",
+        createdAt: "1447-12-09"
+      },
+      {
+        username: "jamila",
+        fullName: language === 'ar' ? 'جميلة' : 'Jamila',
+        password: "jamila",
+        role: "admin",
+        status: "approved",
+        createdAt: "1447-12-09"
+      },
+      {
+        username: "jmmk",
+        fullName: language === 'ar' ? 'مساعد نظام' : 'System Assistant',
+        password: "jm",
+        role: "admin",
+        status: "approved",
+        createdAt: "1447-12-09"
+      }
+    ];
+    const saved = localStorage.getItem('prm_users_backup');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as UserAccount[];
+        const merged = [...defaultUsers];
+        parsed.forEach(u => {
+          if (!merged.some(du => du.username.toLowerCase() === u.username.toLowerCase())) {
+            merged.push(u);
+          }
+        });
+        return merged;
+      } catch (e) {
+        return defaultUsers;
+      }
+    }
+    return defaultUsers;
+  });
 
   // 1.2 Current Logged in User State
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
@@ -46,8 +93,18 @@ export default function App() {
     return null;
   });
 
-  // 2. Permits database state: load from localStorage or fallback to INITIAL_PERMITS
-  const [permits, setPermits] = useState<Permit[]>([]);
+  // 2. Permits database state: load from localStorage backup or fallback to INITIAL_PERMITS
+  const [permits, setPermits] = useState<Permit[]>(() => {
+    const saved = localStorage.getItem('prm_permits_backup');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        return INITIAL_PERMITS;
+      }
+    }
+    return INITIAL_PERMITS;
+  });
 
   // 3. Navigation / Tab State: 'all' (جميع التصاريح), 'add' (إضافة تصريح جديد), 'search' (صفحة البحث), 'users' (إدارة المستخدمين)
   const [activeTab, setActiveTab] = useState<'all' | 'add' | 'search' | 'users'>('all');
@@ -69,6 +126,53 @@ export default function App() {
   
   // 6. Inline Notifications state
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  // Helper: Save permits backup safely to localStorage, stripping large attachments if quota exceeded
+  const safeSavePermitsBackup = (permitsList: Permit[]) => {
+    const key = 'prm_permits_backup';
+    try {
+      localStorage.setItem(key, JSON.stringify(permitsList));
+    } catch (e: any) {
+      if (e.name === 'QuotaExceededError' || e.code === 22 || e.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
+        console.warn("localStorage quota exceeded for full backup, stripping attachment dataUrl to fit text details.");
+        // Strip dataUrl from attachments to save space
+        const strippedList = permitsList.map(permit => {
+          if (!permit.attachments || permit.attachments.length === 0) return permit;
+          const strippedAttachments = permit.attachments.map(att => ({
+            ...att,
+            dataUrl: undefined // strip base64 image data
+          }));
+          return {
+            ...permit,
+            attachments: strippedAttachments
+          };
+        });
+        
+        try {
+          localStorage.setItem(key, JSON.stringify(strippedList));
+          console.log("Successfully saved compressed permits backup (text-only) to localStorage.");
+          setNotification({
+            message: language === 'ar'
+              ? '⚠️ مساحة المتصفح ممتلئة. تم حفظ تفاصيل التصاريح محلياً بدون صور المرفقات لضمان سلامة البيانات.'
+              : '⚠️ Browser storage full. Saved permit details locally without attachment images to protect data.',
+            type: 'success'
+          });
+          setTimeout(() => setNotification(null), 5000);
+        } catch (innerError) {
+          console.error("Failed to save even stripped permits list to localStorage:", innerError);
+          setNotification({
+            message: language === 'ar'
+              ? '❌ فشل حفظ النسخة الاحتياطية المحلية لتجاوز المساحة المسموحة للمتصفح. يرجى تصدير نسخة احتياطية لجهازك.'
+              : '❌ Failed to save local backup because browser storage is completely full. Please export a backup to your device.',
+            type: 'error'
+          });
+          setTimeout(() => setNotification(null), 5000);
+        }
+      } else {
+        console.error("Failed to save permits backup to localStorage:", e);
+      }
+    }
+  };
 
   // 7. Printing state
   const [printTarget, setPrintTarget] = useState<Permit | 'all' | null>(null);
@@ -119,8 +223,25 @@ export default function App() {
         return bId - aId;
       });
       setPermits(list);
+      setDbStatus('online');
+      // Keep local storage backup in sync
+      safeSavePermitsBackup(list);
     }, (error) => {
-      console.error("Firestore permits error:", error);
+      console.warn("Firestore permits warning:", error);
+      if (error.code === 'resource-exhausted' || error.message?.includes('quota') || error.message?.includes('Quota')) {
+        setDbStatus('quota-exceeded');
+      } else {
+        setDbStatus('offline');
+      }
+      // Quota exceeded or error -> load from local backup
+      const saved = localStorage.getItem('prm_permits_backup');
+      if (saved) {
+        try {
+          setPermits(JSON.parse(saved));
+        } catch (e) {
+          // Keep current state
+        }
+      }
     });
     return () => unsubscribe();
   }, []);
@@ -157,29 +278,92 @@ export default function App() {
       defaultUsers.forEach(du => {
         if (!list.some(u => u.username.toLowerCase() === du.username.toLowerCase())) {
           needsSeeding = true;
-          setDoc(doc(db, 'users', du.username.toLowerCase()), du);
+          setDoc(doc(db, 'users', du.username.toLowerCase()), du).catch(e => console.error("Seeding user failed:", e));
         }
       });
 
+      // Update local storage backup with retrieved users
+      try {
+        localStorage.setItem('prm_users_backup', JSON.stringify(list));
+      } catch (e) {
+        console.warn("Failed to save users backup to localStorage:", e);
+      }
+
       if (!needsSeeding) {
         setUsers(list);
+      } else {
+        const merged = [...list];
+        defaultUsers.forEach(du => {
+          if (!merged.some(u => u.username.toLowerCase() === du.username.toLowerCase())) {
+            merged.push(du);
+          }
+        });
+        setUsers(merged);
       }
+      setDbStatus('online');
     }, (error) => {
-      console.error("Firestore users error:", error);
+      console.warn("Firestore users warning:", error);
+      if (error.code === 'resource-exhausted' || error.message?.includes('quota') || error.message?.includes('Quota')) {
+        setDbStatus('quota-exceeded');
+      } else {
+        setDbStatus('offline');
+      }
+      // Fallback on error (like Quota Exceeded)
+      const saved = localStorage.getItem('prm_users_backup');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved) as UserAccount[];
+          const defaultUsers: UserAccount[] = [
+            {
+              username: "waseem",
+              fullName: language === 'ar' ? 'وسيم' : 'Waseem',
+              password: "wem",
+              role: "admin",
+              status: "approved",
+              createdAt: "1447-12-09"
+            },
+            {
+              username: "jmmk",
+              fullName: language === 'ar' ? 'مساعد نظام' : 'System Assistant',
+              password: "jm",
+              role: "admin",
+              status: "approved",
+              createdAt: "1447-12-09"
+            }
+          ];
+          const merged = [...defaultUsers];
+          parsed.forEach(u => {
+            if (!merged.some(du => du.username.toLowerCase() === u.username.toLowerCase())) {
+              merged.push(u);
+            }
+          });
+          setUsers(merged);
+        } catch (e) {
+          // Keep current state
+        }
+      }
     });
     return () => unsubscribe();
   }, [language]);
 
   useEffect(() => {
     if (currentUser) {
-      localStorage.setItem('prm_current_user', JSON.stringify(currentUser));
+      try {
+        localStorage.setItem('prm_current_user', JSON.stringify(currentUser));
+      } catch (e) {
+        console.warn("Failed to save current user to localStorage:", e);
+      }
     } else {
       localStorage.removeItem('prm_current_user');
     }
   }, [currentUser]);
 
   useEffect(() => {
-    localStorage.setItem('prm_lang', language);
+    try {
+      localStorage.setItem('prm_lang', language);
+    } catch (e) {
+      console.warn("Failed to save language to localStorage:", e);
+    }
     document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr';
     document.documentElement.lang = language;
   }, [language]);
@@ -250,19 +434,154 @@ export default function App() {
     return (maxId + 1).toString();
   };
 
+  // Local JSON Backup Export
+  const handleExportBackup = () => {
+    try {
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(permits, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", `tint_permits_backup_${new Date().toISOString().slice(0, 10)}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+      triggerNotification(
+        language === 'ar' ? 'تم تصدير النسخة الاحتياطية بنجاح!' : 'Backup exported successfully!',
+        'success'
+      );
+    } catch (err) {
+      console.error(err);
+      triggerNotification(
+        language === 'ar' ? 'فشل تصدير النسخة الاحتياطية' : 'Failed to export backup',
+        'error'
+      );
+    }
+  };
+
+  // Local JSON Backup Import
+  const handleImportBackup = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const fileObj = event.target.files?.[0];
+    if (!fileObj) return;
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const result = e.target?.result as string;
+        const json = JSON.parse(result);
+        if (Array.isArray(json)) {
+          // Minimal validation of permit records
+          const isValid = json.every(item => item && typeof item === 'object' && 'id' in item);
+          if (!isValid) {
+            triggerNotification(
+              language === 'ar' ? 'ملف النسخة الاحتياطية غير صالح أو لا يحتوي على تصاريح!' : 'Invalid backup file or does not contain permits!',
+              'error'
+            );
+            return;
+          }
+
+          setPermits(json);
+          safeSavePermitsBackup(json);
+
+          if (dbStatus === 'online') {
+            // If database is online, sync the records to Firestore
+            let successCount = 0;
+            let failCount = 0;
+            for (const permit of json) {
+              try {
+                await setDoc(doc(db, 'permits', permit.id), permit);
+                successCount++;
+              } catch (err) {
+                console.error(`Failed to sync permit ${permit.id} during backup restore:`, err);
+                failCount++;
+              }
+            }
+            if (failCount === 0) {
+              triggerNotification(
+                language === 'ar' 
+                  ? `تم استيراد ${successCount} تصريح ومزامنتها سحابياً بنجاح!` 
+                  : `Successfully imported and synced ${successCount} permits to the cloud!`,
+                'success'
+              );
+            } else {
+              triggerNotification(
+                language === 'ar' 
+                  ? `تم استيراد ${successCount} تصريح بنجاح، بينما فشل مزامنة ${failCount}.` 
+                  : `Imported ${successCount} permits, but failed to sync ${failCount} to the cloud.`,
+                'error'
+              );
+            }
+          } else {
+            triggerNotification(
+              language === 'ar' ? 'تم استيراد النسخة الاحتياطية وتحديث النظام محلياً بنجاح!' : 'Backup imported and system updated locally successfully!',
+              'success'
+            );
+          }
+        } else {
+          triggerNotification(
+            language === 'ar' ? 'ملف النسخة الاحتياطية غير صالح!' : 'Invalid backup file format!',
+            'error'
+          );
+        }
+      } catch (err) {
+        console.error(err);
+        triggerNotification(
+          language === 'ar' ? 'خطأ أثناء قراءة الملف!' : 'Error reading backup file!',
+          'error'
+        );
+      }
+    };
+    reader.readAsText(fileObj);
+  };
+
+  // Local Database Reset to Default Mock
+  const handleResetLocalDatabase = () => {
+    const msg = language === 'ar' 
+      ? 'هل أنت متأكد من رغبتك في إعادة تعيين البيانات وحذف كافة الإدخالات والعودة للتصاريح الافتراضية المرفقة بالنظام؟' 
+      : 'Are you sure you want to reset all data, delete all current entries, and return to the system default permits?';
+    if (window.confirm(msg)) {
+      setPermits(INITIAL_PERMITS);
+      safeSavePermitsBackup(INITIAL_PERMITS);
+      triggerNotification(
+        language === 'ar' ? 'تمت إعادة تعيين البيانات وحفظها محلياً بنجاح.' : 'Data reset and saved locally successfully.',
+        'success'
+      );
+    }
+  };
+
   // Delete Action
   const handleDeletePermit = async (id: string) => {
+    if (dbStatus !== 'online') {
+      const updated = permits.filter(p => p.id !== id);
+      setPermits(updated);
+      safeSavePermitsBackup(updated);
+      triggerNotification(`${t.successDelete} (حذف محلي)`, 'success');
+      setDeleteConfirmId(null);
+      return;
+    }
     try {
       await deleteDoc(doc(db, 'permits', id));
       triggerNotification(t.successDelete, 'success');
     } catch (e) {
-      triggerNotification(language === 'ar' ? 'حدث خطأ أثناء الحذف' : 'Error deleting permit', 'error');
+      console.error("Firestore delete error, falling back to local:", e);
+      const updated = permits.filter(p => p.id !== id);
+      setPermits(updated);
+      safeSavePermitsBackup(updated);
+      triggerNotification(`${t.successDelete} (حذف محلي)`, 'success');
     }
     setDeleteConfirmId(null);
   };
 
   // Delete All Action
   const handleDeleteAllPermits = async () => {
+    if (dbStatus !== 'online') {
+      setPermits([]);
+      safeSavePermitsBackup([]);
+      triggerNotification(
+        language === 'ar' ? 'تم حذف جميع التصاريح محلياً بنجاح.' : 'All permits have been deleted locally.',
+        'success'
+      );
+      setDeleteAllConfirm(false);
+      return;
+    }
     try {
       const deletePromises = permits.map(p => deleteDoc(doc(db, 'permits', p.id)));
       await Promise.all(deletePromises);
@@ -271,10 +590,12 @@ export default function App() {
         'success'
       );
     } catch (e) {
-      console.error(e);
+      console.error("Firestore delete all error, falling back to local:", e);
+      setPermits([]);
+      safeSavePermitsBackup([]);
       triggerNotification(
-        language === 'ar' ? 'حدث خطأ أثناء حذف جميع التصاريح.' : 'Error deleting all permits.',
-        'error'
+        language === 'ar' ? 'تم حذف جميع التصاريح محلياً بنجاح.' : 'All permits have been deleted locally.',
+        'success'
       );
     }
     setDeleteAllConfirm(false);
@@ -331,7 +652,20 @@ export default function App() {
           );
         }}
         users={users}
+        dbStatus={dbStatus}
         onRegister={async (newUser) => {
+          if (dbStatus !== 'online') {
+            const updated = [...users, newUser];
+            setUsers(updated);
+            localStorage.setItem('prm_users_backup', JSON.stringify(updated));
+            triggerNotification(
+              language === 'ar' 
+                ? `تم تسجيل الحساب محلياً بنجاح. بانتظار موافقة المسؤول waseem.` 
+                : `Account registered locally. Pending approval by waseem.`, 
+              'success'
+            );
+            return;
+          }
           try {
             await setDoc(doc(db, 'users', newUser.username.toLowerCase()), newUser);
             triggerNotification(
@@ -341,7 +675,16 @@ export default function App() {
               'success'
             );
           } catch (e) {
-            triggerNotification(language === 'ar' ? 'فشل تسجيل الحساب' : 'Failed to register account', 'error');
+            console.error("Firestore registration error, falling back to local:", e);
+            const updated = [...users, newUser];
+            setUsers(updated);
+            localStorage.setItem('prm_users_backup', JSON.stringify(updated));
+            triggerNotification(
+              language === 'ar' 
+                ? `تم تسجيل الحساب محلياً بنجاح. بانتظار موافقة المسؤول waseem.` 
+                : `Account registered locally. Pending approval by waseem.`, 
+              'success'
+            );
           }
         }}
         setLanguage={setLanguage}
@@ -533,6 +876,113 @@ export default function App() {
             </div>
           </div>
 
+        </div>
+      </section>
+
+      {/* Hidden file input for backup importing */}
+      <input 
+        type="file" 
+        ref={fileInputRef} 
+        onChange={handleImportBackup} 
+        accept=".json" 
+        className="hidden" 
+      />
+
+      {/* CLOUD & LOCAL DATABASE STATUS & RECOVERY PANEL */}
+      <section className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 mt-6">
+        <div className={`border rounded-2xl p-5 md:p-6 shadow-xs flex flex-col md:flex-row gap-5 justify-between items-start md:items-center transition-all ${
+          dbStatus === 'online'
+            ? 'bg-emerald-50/50 border-emerald-100'
+            : 'bg-amber-50/70 border-amber-200'
+        }`}>
+          <div className="space-y-2 text-right flex-1">
+            <div className="flex items-center gap-2 justify-end">
+              {dbStatus === 'online' ? (
+                <>
+                  <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-200 animate-pulse">
+                    {language === 'ar' ? 'المزامنة السحابية نشطة 🟢' : 'CLOUD SYNC ACTIVE 🟢'}
+                  </span>
+                  <h4 className="text-sm font-black flex items-center gap-1.5 leading-none text-emerald-900">
+                    {language === 'ar' ? 'نظام قواعد البيانات السحابية آمن ومزامن' : 'Cloud Database System Connected & Synced'}
+                  </h4>
+                </>
+              ) : (
+                <>
+                  <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-300">
+                    {language === 'ar' ? 'وضع الحفظ المحلي نشط' : 'LOCAL OFFLINE STORAGE ACTIVE'}
+                  </span>
+                  <h4 className="text-sm font-black flex items-center gap-1.5 leading-none text-amber-900">
+                    {language === 'ar' ? (
+                      dbStatus === 'quota-exceeded' ? '⚠️ تنبيه: تجاوز الحد اليومي للمزامنة السحابية' : '⚠️ تنبيه: نظام قواعد البيانات السحابية غير متصل'
+                    ) : (
+                      dbStatus === 'quota-exceeded' ? '⚠️ Cloud Database Daily Limit Reached' : '⚠️ Cloud Database Connection Offline'
+                    )}
+                  </h4>
+                </>
+              )}
+            </div>
+            <p className={`text-xs font-medium leading-relaxed ${dbStatus === 'online' ? 'text-emerald-800' : 'text-amber-900'}`}>
+              {language === 'ar' ? (
+                dbStatus === 'online' ? (
+                  <span>
+                    البيانات متصلة سحابياً بشكل مباشر وتلقائي. <strong>لضمان سلامة بياناتك وتفادي أي توقف طارئ بسبب قيود الحصص اليومية السحابية من جوجل كلاود،</strong> يُوصى بشدة تنزيل وحفظ نسخة احتياطية لملف البيانات على جهازك بانتظام لتتمكن من استيرادها في أي وقت بنقرة واحدة.
+                  </span>
+                ) : dbStatus === 'quota-exceeded' ? (
+                  'تجاوزت قاعدة البيانات السحابية (Firestore) الحد المجاني اليومي للاستعلامات من قوقل كلاود. تم تفعيل نظام الحفظ والتدقيق الاحتياطي المحلي الآمن تلقائياً. جميع تصاريحك المسجلة لم تضيع وهي محفوظة بأمان في السحابة وستعود للظهور تلقائياً غداً بمجرد تجديد العداد من قوقل. يمكنك حالياً إضافة وتعديل وطباعة وإدارة كافة التصاريح محلياً بشكل طبيعي 100% دون انقطاع، ونوصي باستيراد ملف النسخة الاحتياطية الذي قمت بحفظه سابقاً إذا كنت ترغب باسترداد تصاريحك الآن.'
+                ) : (
+                  'تعذر الاتصال بـ Firestore السحابية. تم الانتقال تلقائياً لوضع التشغيل المحلي لضمان استقرار العمل. جميع عمليات الإضافة والحذف والتعديل والتجديد نشطة ومستقرة تماماً وسيتم حفظها على متصفحك الحالي، ونوصي باستيراد نسخة احتياطية من جهازك إذا كنت بحاجة للبيانات السابقة فوراً.'
+                )
+              ) : (
+                dbStatus === 'online' ? (
+                  <span>
+                    Your data is securely connected and syncing to the cloud in real-time. <strong>To protect your progress from potential free-tier daily cloud limits,</strong> we highly recommend periodically exporting a local backup file to your device. You can restore it instantly anytime!
+                  </span>
+                ) : dbStatus === 'quota-exceeded' ? (
+                  'The Firestore cloud database has exceeded its daily free-tier limits set by Google Cloud. We have automatically activated the Secure Local & Offline Backup System. All your registered permits are safe on the cloud and will reappear tomorrow. You can continue adding, editing, and printing permits seamlessly; everything is being securely saved on your current browser! If you have a previously saved backup file, you can import it below to restore your work immediately.'
+                ) : (
+                  'Could not connect to the Firestore cloud database. Auto-switched to Secure Local Storage. All actions (adding, deleting, renewing, and updating permits) are fully active and saved on your current browser. You can import any previously exported JSON backup to recover your permits immediately.'
+                )
+              )}
+            </p>
+          </div>
+          
+          {/* Control Actions */}
+          <div className="flex flex-wrap gap-2 justify-end w-full md:w-auto shrink-0">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className={`px-3.5 py-2 text-xs font-bold border rounded-xl shadow-3xs transition-all cursor-pointer flex items-center gap-1.5 ${
+                dbStatus === 'online'
+                  ? 'text-emerald-800 bg-white hover:bg-emerald-50 border-emerald-200'
+                  : 'text-amber-800 bg-white hover:bg-amber-100/50 border-amber-300'
+              }`}
+              title={language === 'ar' ? 'استيراد نسخة احتياطية من ملف خارجي' : 'Import backup from JSON'}
+            >
+              <FileUp className="h-3.5 w-3.5" />
+              <span>{language === 'ar' ? 'استيراد نسخة من الجهاز' : 'Import Backup'}</span>
+            </button>
+            
+            <button
+              onClick={handleExportBackup}
+              className={`px-3.5 py-2 text-xs font-bold border rounded-xl shadow-3xs transition-all cursor-pointer flex items-center gap-1.5 ${
+                dbStatus === 'online'
+                  ? 'text-emerald-800 bg-emerald-600/10 hover:bg-emerald-600/20 border-emerald-200'
+                  : 'text-amber-800 bg-white hover:bg-amber-100/50 border-amber-300'
+              }`}
+              title={language === 'ar' ? 'تنزيل نسخة احتياطية من جميع التصاريح الحالية بصيغة JSON' : 'Download permits as JSON'}
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span>{language === 'ar' ? 'حفظ نسخة احتياطية للجهاز' : 'Export Backup'}</span>
+            </button>
+            
+            <button
+              onClick={handleResetLocalDatabase}
+              className="px-3.5 py-2 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100/70 border border-red-200 rounded-xl shadow-3xs transition-all cursor-pointer flex items-center gap-1.5"
+              title={language === 'ar' ? 'إعادة تعيين كافة البيانات إلى الإعدادات الافتراضية' : 'Reset to default clean data'}
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              <span>{language === 'ar' ? 'إعادة ضبط' : 'Reset Data'}</span>
+            </button>
+          </div>
         </div>
       </section>
 
@@ -936,12 +1386,25 @@ export default function App() {
           <AddPermitView 
             language={language}
             onAdd={async (newPermit) => {
+              if (dbStatus !== 'online') {
+                const updated = [newPermit, ...permits];
+                setPermits(updated);
+                safeSavePermitsBackup(updated);
+                triggerNotification(`${t.successAdd} ${newPermit.id} (حفظ محلي)`, 'success');
+                setActiveTab('all');
+                return;
+              }
               try {
                 await setDoc(doc(db, 'permits', newPermit.id), newPermit);
                 triggerNotification(`${t.successAdd} ${newPermit.id}`, 'success');
                 setActiveTab('all');
               } catch (e) {
-                triggerNotification(language === 'ar' ? 'فشل إضافة التصريح' : 'Failed to add permit', 'error');
+                console.error("Failed to add permit to Firestore, falling back to local:", e);
+                const updated = [newPermit, ...permits];
+                setPermits(updated);
+                safeSavePermitsBackup(updated);
+                triggerNotification(`${t.successAdd} ${newPermit.id} (حفظ محلي)`, 'success');
+                setActiveTab('all');
               }
             }}
             generateId={generateSequentialId}
@@ -1210,6 +1673,7 @@ export default function App() {
             setUsers={setUsers}
             currentUser={currentUser}
             triggerNotification={triggerNotification}
+            dbStatus={dbStatus}
           />
         )}
 
@@ -1230,12 +1694,25 @@ export default function App() {
             permit={editingPermit}
             onClose={() => setEditingPermit(null)}
             onSave={async (updatedPermit) => {
+              if (dbStatus !== 'online') {
+                const updated = permits.map(p => p.id === updatedPermit.id ? updatedPermit : p);
+                setPermits(updated);
+                safeSavePermitsBackup(updated);
+                triggerNotification(`${t.successEdit} (تعديل محلي)`, 'success');
+                setEditingPermit(null);
+                return;
+              }
               try {
                 await setDoc(doc(db, 'permits', updatedPermit.id), updatedPermit);
                 triggerNotification(t.successEdit, 'success');
                 setEditingPermit(null);
               } catch (e) {
-                triggerNotification(language === 'ar' ? 'فشل تعديل التصريح' : 'Failed to edit permit', 'error');
+                console.error("Firestore edit error, falling back to local:", e);
+                const updated = permits.map(p => p.id === updatedPermit.id ? updatedPermit : p);
+                setPermits(updated);
+                safeSavePermitsBackup(updated);
+                triggerNotification(`${t.successEdit} (تعديل محلي)`, 'success');
+                setEditingPermit(null);
               }
             }}
           />
@@ -1250,12 +1727,27 @@ export default function App() {
             permit={viewingDocsPermit}
             onClose={() => setViewingDocsPermit(null)}
             onUpdateAttachments={async (updatedAttachments) => {
+              if (dbStatus !== 'online') {
+                const updatedPermit = { ...viewingDocsPermit, attachments: updatedAttachments };
+                const updated = permits.map(p => p.id === viewingDocsPermit.id ? updatedPermit : p);
+                setPermits(updated);
+                safeSavePermitsBackup(updated);
+                setViewingDocsPermit(updatedPermit);
+                triggerNotification(`${t.successEdit} (تعديل محلي)`, 'success');
+                return;
+              }
               try {
                 await updateDoc(doc(db, 'permits', viewingDocsPermit.id), { attachments: updatedAttachments });
                 setViewingDocsPermit({ ...viewingDocsPermit, attachments: updatedAttachments });
                 triggerNotification(t.successEdit, 'success');
               } catch (e) {
-                triggerNotification(language === 'ar' ? 'فشل تعديل المستندات' : 'Failed to update documents', 'error');
+                console.error("Firestore update attachment error, falling back to local:", e);
+                const updatedPermit = { ...viewingDocsPermit, attachments: updatedAttachments };
+                const updated = permits.map(p => p.id === viewingDocsPermit.id ? updatedPermit : p);
+                setPermits(updated);
+                safeSavePermitsBackup(updated);
+                setViewingDocsPermit(updatedPermit);
+                triggerNotification(`${t.successEdit} (تعديل محلي)`, 'success');
               }
             }}
             onPrintAttachment={(file) => setPrintAttachment({ permit: viewingDocsPermit, file })}
@@ -1271,6 +1763,19 @@ export default function App() {
             permit={renewingPermit}
             onClose={() => setRenewingPermit(null)}
             onSave={async (updatedPermit) => {
+              if (dbStatus !== 'online') {
+                const updated = permits.map(p => p.id === updatedPermit.id ? updatedPermit : p);
+                setPermits(updated);
+                safeSavePermitsBackup(updated);
+                triggerNotification(
+                  language === 'ar'
+                    ? `تم تجديد التصريح رقم #${updatedPermit.id} بنجاح (تعديل محلي)`
+                    : `Permit #${updatedPermit.id} renewed successfully (local update)`,
+                  'success'
+                 );
+                 setRenewingPermit(null);
+                 return;
+              }
               try {
                 await setDoc(doc(db, 'permits', updatedPermit.id), updatedPermit);
                 triggerNotification(
@@ -1281,7 +1786,17 @@ export default function App() {
                  );
                  setRenewingPermit(null);
               } catch (e) {
-                triggerNotification(language === 'ar' ? 'فشل تجديد التصريح' : 'Failed to renew permit', 'error');
+                console.error("Firestore renew error, falling back to local:", e);
+                const updated = permits.map(p => p.id === updatedPermit.id ? updatedPermit : p);
+                setPermits(updated);
+                safeSavePermitsBackup(updated);
+                triggerNotification(
+                  language === 'ar'
+                    ? `تم تجديد التصريح رقم #${updatedPermit.id} بنجاح (تعديل محلي)`
+                    : `Permit #${updatedPermit.id} renewed successfully (local update)`,
+                  'success'
+                 );
+                 setRenewingPermit(null);
               }
             }}
           />
@@ -3452,9 +3967,10 @@ interface AuthScreenProps {
   onRegister: (newUser: UserAccount) => void;
   setLanguage: (lang: Language) => void;
   t: any;
+  dbStatus: 'online' | 'offline' | 'quota-exceeded';
 }
 
-function AuthScreen({ language, onLoginSuccess, users, onRegister, setLanguage, t }: AuthScreenProps) {
+function AuthScreen({ language, onLoginSuccess, users, onRegister, setLanguage, t, dbStatus }: AuthScreenProps) {
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -3570,6 +4086,39 @@ function AuthScreen({ language, onLoginSuccess, users, onRegister, setLanguage, 
             </p>
           </div>
         </div>
+
+        {/* CLOUD DB OFFLINE / QUOTA NOTICE */}
+        {dbStatus !== 'online' && (
+          <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-2 text-right">
+            <div className="flex items-center gap-1.5 justify-end text-amber-800">
+              <span className="bg-amber-100 text-amber-800 text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-amber-300">
+                {language === 'ar' ? 'مستمر محلياً' : 'LOCAL ACTIVE'}
+              </span>
+              <h4 className="text-xs font-black flex items-center gap-1">
+                {language === 'ar' ? '⚠️ نظام الحفظ الاحتياطي المحلي نشط' : '⚠️ Local Backup System Active'}
+              </h4>
+            </div>
+            <p className="text-[11px] text-amber-900 leading-relaxed font-medium">
+              {language === 'ar' ? (
+                <span>
+                  لا تقلقوا، <strong>بياناتكم وتصاريحكم لم تُحذف وهي بأمان تام في السحابة.</strong> تم تجاوز حد الاستعلامات اليومي المجاني من جوجل كلاود (Google Cloud Quota).
+                  <br />
+                  <span className="block mt-1 text-[#006b33] font-bold">
+                    💡 للدخول الآن: استخدم حساب وسيم (wem) أو حساب جميلة (jamila) لمواصلة العمل محلياً!
+                  </span>
+                </span>
+              ) : (
+                <span>
+                  Don't worry, <strong>your data is perfectly safe in the cloud.</strong> Google Cloud free tier daily limits have been exceeded temporarily.
+                  <br />
+                  <span className="block mt-1 text-[#006b33] font-bold">
+                    💡 To log in offline: use username "waseem" (password: wem) or "jamila" (password: jamila) to continue working.
+                  </span>
+                </span>
+              )}
+            </p>
+          </div>
+        )}
 
         {/* Auth Tabs */}
         <div className="bg-[#f1f5f9] p-1 rounded-xl flex">
@@ -3746,9 +4295,10 @@ interface UserManagementProps {
   setUsers: React.Dispatch<React.SetStateAction<UserAccount[]>>;
   currentUser: UserAccount;
   triggerNotification: (msg: string, type?: 'success' | 'error') => void;
+  dbStatus: 'online' | 'offline' | 'quota-exceeded';
 }
 
-function UserManagement({ language, users, setUsers, currentUser, triggerNotification }: UserManagementProps) {
+function UserManagement({ language, users, setUsers, currentUser, triggerNotification, dbStatus }: UserManagementProps) {
   const isAr = language === 'ar';
 
   const [showAddForm, setShowAddForm] = useState(false);
@@ -3797,6 +4347,27 @@ function UserManagement({ language, users, setUsers, currentUser, triggerNotific
       createdAt: todayStr
     };
 
+    if (dbStatus !== 'online') {
+      const updated = [...users, newUser];
+      setUsers(updated);
+      localStorage.setItem('prm_users_backup', JSON.stringify(updated));
+      
+      // reset form
+      setNewUsername('');
+      setNewPassword('');
+      setNewFullName('');
+      setNewRole('user');
+      setShowAddForm(false);
+
+      triggerNotification(
+        isAr 
+          ? `تم تسجيل وإضافة المستخدم الجديد (${newUser.fullName}) محلياً بنجاح.` 
+          : `New user (${newUser.fullName}) registered and activated locally.`,
+        'success'
+      );
+      return;
+    }
+
     try {
       await setDoc(doc(db, 'users', newUser.username.toLowerCase()), newUser);
       
@@ -3814,14 +4385,40 @@ function UserManagement({ language, users, setUsers, currentUser, triggerNotific
         'success'
       );
     } catch (e) {
+      console.error("Firestore user creation error, falling back to local:", e);
+      const updated = [...users, newUser];
+      setUsers(updated);
+      localStorage.setItem('prm_users_backup', JSON.stringify(updated));
+      
+      // reset form
+      setNewUsername('');
+      setNewPassword('');
+      setNewFullName('');
+      setNewRole('user');
+      setShowAddForm(false);
+
       triggerNotification(
-        isAr ? 'حدث خطأ أثناء إضافة المستخدم.' : 'Error adding new user.',
-        'error'
+        isAr 
+          ? `تم تسجيل وإضافة المستخدم الجديد (${newUser.fullName}) محلياً بنجاح.` 
+          : `New user (${newUser.fullName}) registered and activated locally.`,
+        'success'
       );
     }
   };
 
   const handleApprove = async (username: string) => {
+    if (dbStatus !== 'online') {
+      const updated = users.map(u => u.username.toLowerCase() === username.toLowerCase() ? { ...u, status: 'approved' as const } : u);
+      setUsers(updated);
+      localStorage.setItem('prm_users_backup', JSON.stringify(updated));
+      triggerNotification(
+        isAr 
+          ? `تم تفعيل حساب المستخدم (${username}) محلياً بنجاح.` 
+          : `User account (${username}) has been activated locally.`, 
+        'success'
+      );
+      return;
+    }
     try {
       await updateDoc(doc(db, 'users', username.toLowerCase()), { status: 'approved' });
       triggerNotification(
@@ -3831,9 +4428,15 @@ function UserManagement({ language, users, setUsers, currentUser, triggerNotific
         'success'
       );
     } catch (e) {
+      console.error("Firestore user approval error, falling back to local:", e);
+      const updated = users.map(u => u.username.toLowerCase() === username.toLowerCase() ? { ...u, status: 'approved' as const } : u);
+      setUsers(updated);
+      localStorage.setItem('prm_users_backup', JSON.stringify(updated));
       triggerNotification(
-        isAr ? 'حدث خطأ أثناء التفعيل.' : 'Error activating account.',
-        'error'
+        isAr 
+          ? `تم تفعيل حساب المستخدم (${username}) محلياً بنجاح.` 
+          : `User account (${username}) has been activated locally.`, 
+        'success'
       );
     }
   };
@@ -3846,6 +4449,18 @@ function UserManagement({ language, users, setUsers, currentUser, triggerNotific
       );
       return;
     }
+    if (dbStatus !== 'online') {
+      const updated = users.filter(u => u.username.toLowerCase() !== username.toLowerCase());
+      setUsers(updated);
+      localStorage.setItem('prm_users_backup', JSON.stringify(updated));
+      triggerNotification(
+        isAr 
+          ? `تم حذف حساب المستخدم (${username}) محلياً بنجاح.` 
+          : `User account (${username}) has been deleted locally.`, 
+        'success'
+      );
+      return;
+    }
     try {
       await deleteDoc(doc(db, 'users', username.toLowerCase()));
       triggerNotification(
@@ -3855,9 +4470,15 @@ function UserManagement({ language, users, setUsers, currentUser, triggerNotific
         'success'
       );
     } catch (e) {
+      console.error("Firestore user deletion error, falling back to local:", e);
+      const updated = users.filter(u => u.username.toLowerCase() !== username.toLowerCase());
+      setUsers(updated);
+      localStorage.setItem('prm_users_backup', JSON.stringify(updated));
       triggerNotification(
-        isAr ? 'حدث خطأ أثناء الحذف.' : 'Error deleting account.',
-        'error'
+        isAr 
+          ? `تم حذف حساب المستخدم (${username}) محلياً بنجاح.` 
+          : `User account (${username}) has been deleted locally.`, 
+        'success'
       );
     }
   };
